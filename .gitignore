@@ -1,0 +1,9 @@
+# Ignore csv
+*.csv
+
+# Venv is ignored automaticly die to .gitgonre inside the venv folder.
+# It's written just to ensure and complete the task.
+venv/
+
+# Ignore IDEA files
+.idea/
