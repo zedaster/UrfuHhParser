@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Report</title>
+    <style>
+        body {
+            font-family: Verdana, Geneva, sans-serif;
+            text-align: center;
+        }
+
+        td, th {
+            border: 1px solid black;
+            padding: 5px;
+        }
+
+        table {
+            display: inline-table;
+            border-collapse: collapse;
+            margin-left: 5px;
+            margin-right: 5px;
+        }
+    </style>
+</head>
+<body>
+<h1>Аналитика по зарплатам и городам для профессии {{prof_name}}</h1>
+<div class="graph-container">
+    <img src="data:image/png;base64,{{graph_bytes}}"/>
+</div>
+<h2>Статистика по годам</h2>
+<div class="table-container">
+    <table>
+        <tr>
+            <th scope="col">Год</th>
+            <th scope="col">Средняя зарплата</th>
+            <th scope="col">Средняя зарплата - {{prof_name}}</th>
+            <th scope="col">Количество вакансий</th>
+            <th scope="col">Количество вакансий - {{prof_name}}</th>
+        </tr>
+        {% for item in year_items %}
+        <tr>
+            <td>{{item.year}}</td>
+            <td>{{item.salary}}</td>
+            <td>{{item.prof_salary}}</td>
+            <td>{{item.counts}}</td>
+            <td>{{item.prof_counts}}</td>
+        </tr>
+        {% endfor %}
+    </table>
+</div>
+
+<h2>Статистика по городам</h2>
+<table>
+    <tr>
+        <th scope="col">Город</th>
+        <th scope="col">Уровень зарплат</th>
+    </tr>
+    {% for item in city_salaries %}
+    <tr>
+        <td>{{item.city}}</td>
+        <td>{{item.salary}}</td>
+    </tr>
+    {% endfor %}
+</table>
+<table>
+    <tr>
+        <th scope="col">Город</th>
+        <th scope="col">Доля вакансий</th>
+    </tr>
+    {%for item in city_shares %}
+    <tr>
+        <td>{{item.city}}</td>
+        <td>{{item.share}}</td>
+    </tr>
+    {% endfor %}
+</table>
+</body>
+</html>
