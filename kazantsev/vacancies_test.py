@@ -1,4 +1,4 @@
-from parser import execute_vacancies
+from hhparser import execute_vacancies
 
 # Edit the filename before testing
 execute_vacancies("vacancies_medium.csv", "Премиум-вакансия: Нет", "", "", "",

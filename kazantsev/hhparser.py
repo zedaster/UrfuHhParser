@@ -21,6 +21,7 @@ from prettytable import PrettyTable, ALL
 matplotlib.use('TkAgg')
 
 WKHTMLTOPDF_PATH = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
+HTML_TEMPLATE_PATH = r'kazantsev/report_template.html'
 
 exp_naming = {
     "noExperience": "Нет опыта",
@@ -80,7 +81,8 @@ class Salary:
         self.gross = gross
         self.currency = currency
 
-    def get_ruble_avg_salary(self):
+    @property
+    def avg_ruble_amount(self):
         currency_to_rub = {
             "AZN": 35.68,
             "BYR": 23.91,
@@ -241,7 +243,7 @@ class InputConect:
             'Компания': lambda vac: vac.employer_name,
             'Название региона': lambda vac: vac.area_name,
             'Навыки': lambda vac: len(vac.key_skills),
-            'Оклад': lambda vac: vac.salary.avg_ruble_amount(),
+            'Оклад': lambda vac: vac.salary.avg_ruble_amount,
             'Дата публикации вакансии': lambda vac: vac.published_at,
             'Опыт работы': lambda vac: list(exp_naming.keys()).index(vac.experience_id),
             'Премиум-вакансия': lambda vac: int(vac.premium),
@@ -550,8 +552,9 @@ def check_all_equal(iterable, exception):
 
 class ReportSheet:
     def __init__(self, title: str, key_name: str, report_columns: Iterable[ReportColumn], separated=False):
-        check_all_equal(map(lambda col: col.keys, report_columns),
-                        Exception('Keys of all report_columns must be identical on non-separated sheet'))
+        if not separated:
+            check_all_equal(map(lambda col: col.keys, report_columns),
+                            Exception('Keys of all report_columns must be identical on non-separated sheet'))
         self.title = title
         self.key_name = key_name
         self.report_columns = report_columns
@@ -729,9 +732,9 @@ class Report:
     def generate_excel(self, filename, bold_titles=True, borders=True):
         year_columns = []
         year_columns += [ReportColumn('Средняя зарпалата', self.stats.salaries_by_year)]
-        year_columns += [ReportColumn(f'Средняя зарпалата - {prof_name}', self.stats.prof_salaries_by_year)]
+        year_columns += [ReportColumn(f'Средняя зарпалата - {self.stats.prof_name}', self.stats.prof_salaries_by_year)]
         year_columns += [ReportColumn(f'Количество вакансий', self.stats.counts_by_year)]
-        year_columns += [ReportColumn(f'Количество вакансий - {prof_name}', self.stats.prof_counts_by_year)]
+        year_columns += [ReportColumn(f'Количество вакансий - {self.stats.prof_name}', self.stats.prof_counts_by_year)]
         year_sheet = ReportSheet('Статистика по годам', 'Год', year_columns)
         city_columns = []
         city_columns += [ReportColumn('Уровень зарплат', self.stats.top_10_salaries_by_cities)]
@@ -786,7 +789,7 @@ class Report:
                 }
 
         env = Environment(loader=FileSystemLoader('..'))
-        template = env.get_template('report_template.html')
+        template = env.get_template(HTML_TEMPLATE_PATH)
         html = template.render({
             'prof_name': 'Программист',
             'graph_bytes': self._get_base64_png()
@@ -863,7 +866,12 @@ def ask_and_execute_reports():
     prof_name = input('Введите название профессии: ')
     execute_reports(file_name, prof_name)
 
+
 if __name__ == "__main__":
     ask_for = input('Что вам нужно? (Вакансии/Статистика): ')
     if ask_for.lower() == 'вакансии':
         ask_and_execute_vacancies()
+    elif ask_for.lower() == 'статистика':
+        ask_and_execute_reports()
+    else:
+        print('Такого мы пока еще не разработали. Перезапустите программу и введите одно из возможных значений.')
