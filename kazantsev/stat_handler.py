@@ -1,7 +1,7 @@
 import csv
 import itertools
 import re
-from typing import List
+from datetime import datetime
 
 from prettytable import PrettyTable, ALL
 
@@ -42,28 +42,26 @@ reversed_bool_naming = {
 
 
 def to_bool(str_val):
+    if str_val is None:
+        return None
     if str_val == 'True':
         return True
-    elif str_val == 'False':
+    if str_val == 'False':
         return False
-    else:
-        raise Exception(f'Failed to parse bool value "{str_val}"')
+
+    raise Exception(f'Failed to parse bool value "{str_val}"')
 
 
 def format_sum(str_sum):
     return format(int(float(str_sum)), ',').replace(',', ' ')
 
 
-def format_date(str_date):
-    return f"{str_date[8:10]}.{str_date[5:7]}.{str_date[0:4]}"
-
-
 class Salary:
-    def __init__(self, salary_from: int, salary_to: int, salary_gross: bool, salary_currency: str):
-        self.salary_from = salary_from
-        self.salary_to = salary_to
-        self.salary_gross = salary_gross
-        self.salary_currency = salary_currency
+    def __init__(self, from_amount: int, to_amount: int, currency: str, gross=None):
+        self.from_amount = from_amount
+        self.to_amount = to_amount
+        self.gross = gross
+        self.currency = currency
 
     def get_ruble_avg_salary(self):
         currency_to_rub = {
@@ -79,14 +77,22 @@ class Salary:
             "UZS": 0.0055,
         }
 
-        avg = (self.salary_from + self.salary_to) / 2
-        return avg * currency_to_rub[self.salary_currency]
+        avg = (self.from_amount + self.to_amount) / 2
+        return avg * currency_to_rub[self.currency]
+
+    @staticmethod
+    def parse_from_dict(row_dict):
+        return Salary(
+            from_amount=int(float(row_dict['salary_from'])),
+            to_amount=int(float(row_dict['salary_to'])),
+            gross=to_bool(row_dict.get('salary_gross', None)),
+            currency=row_dict['salary_currency']
+        )
 
 
 class Vacancy:
-    def __init__(self, name: str, description: str, key_skills: List[str], experience_id, premium: bool,
-                 employer_name: str, salary: Salary,
-                 area_name: str, published_at: str):
+    def __init__(self, name: str, salary: Salary, area_name: str, published_at,
+                 description=None, key_skills=None, experience_id=None, premium=None, employer_name=None):
         self.name = name
         self.description = description
         self.key_skills = key_skills
@@ -96,6 +102,39 @@ class Vacancy:
         self.salary = salary
         self.area_name = area_name
         self.published_at = published_at
+
+    @staticmethod
+    def parse_from_dict(row_dict: dict):
+        return Vacancy(
+            name=row_dict['name'],
+            salary=Salary.parse_from_dict(row_dict),
+            area_name=row_dict['area_name'],
+            published_at=datetime.strptime(row_dict['published_at'], '%Y-%m-%dT%H:%M:%S%z'),
+            description=row_dict.get('description', None),
+            key_skills=Vacancy._list_skills(row_dict.get('key_skills', None)),
+            experience_id=row_dict.get('experience_id', None),
+            premium=to_bool(row_dict.get('premium', None)),
+            employer_name=row_dict.get('employer_name', None)
+        )
+
+    @staticmethod
+    def _list_skills(skills):
+        if skills is None:
+            return None
+        if type(skills) is list:
+            return skills
+        if type(skills) is str:
+            return [skills]
+
+        raise Exception(f"Type ${type(skills)} is wrong for raw skills")
+
+    @property
+    def year(self):
+        return self.published_at.year
+
+    @property
+    def str_publish_date(self):
+        return self.published_at.strftime('%d.%m.%Y')
 
 
 class EmptyFileException(Exception):
@@ -150,30 +189,9 @@ class DataSet:
 
     @staticmethod
     def _get_vacancy_objects(row_dicts):
-        def list_skills(skills):
-            if type(skills) is list:
-                return skills
-            elif type(skills) is str:
-                return [skills]
-            else:
-                raise Exception(f"Type ${type(skills)} is wrong for raw skills")
-
         objects = []
         for row_dict in row_dicts:
-            salary = Salary(salary_from=int(float(row_dict['salary_from'])),
-                            salary_to=int(float(row_dict['salary_to'])),
-                            salary_gross=to_bool(row_dict['salary_gross']),
-                            salary_currency=row_dict['salary_currency'])
-            vacancy = Vacancy(name=row_dict['name'],
-                              description=row_dict['description'],
-                              key_skills=list_skills(row_dict['key_skills']),
-                              experience_id=row_dict['experience_id'],
-                              premium=to_bool(row_dict['premium']),
-                              employer_name=row_dict['employer_name'],
-                              salary=salary,
-                              area_name=row_dict['area_name'],
-                              published_at=row_dict['published_at']
-                              )
+            vacancy = Vacancy.parse_from_dict(row_dict)
             objects.append(vacancy)
         return objects
 
@@ -193,11 +211,11 @@ class InputConect:
             'Описание': lambda vac, exp_val: vac.description == exp_val,
             'Компания': lambda vac, exp_val: vac.employer_name == exp_val,
             'Название региона': lambda vac, exp_val: vac.area_name == exp_val,
-            'Оклад': lambda vac, exp_val: vac.salary.salary_from <= int(exp_val) <= vac.salary.salary_to,
+            'Оклад': lambda vac, exp_val: vac.salary.from_amount <= int(exp_val) <= vac.salary.to_amount,
             'Опыт работы': lambda vac, exp_val: exp_naming[vac.experience_id] == exp_val,
             'Премиум-вакансия': lambda vac, exp_val: bool_naming[vac.premium] == exp_val,
-            'Идентификатор валюты оклада': lambda vac, exp_val: cur_naming[vac.salary.salary_currency] == exp_val,
-            'Дата публикации вакансии': lambda vac, exp_val: format_date(vac.published_at) == exp_val,
+            'Идентификатор валюты оклада': lambda vac, exp_val: cur_naming[vac.salary.currency] == exp_val,
+            'Дата публикации вакансии': lambda vac, exp_val: vac.str_publish_date == exp_val,
             'Навыки': lambda vac, exp_val: all([s in vac.key_skills for s in exp_val.split(', ')]),
         }
         self._sorters = {
@@ -210,7 +228,7 @@ class InputConect:
             'Дата публикации вакансии': lambda vac: vac.published_at,
             'Опыт работы': lambda vac: list(exp_naming.keys()).index(vac.experience_id),
             'Премиум-вакансия': lambda vac: int(vac.premium),
-            'Идентификатор валюты оклада': lambda vac: vac.salary.salary_currency,
+            'Идентификатор валюты оклада': lambda vac: vac.salary.currency,
         }
 
         self.filter_key = None
@@ -323,17 +341,16 @@ class InputConect:
         # Получаем регион
         new_row['area_name'] = vacancy.area_name
         # Заменяем дату публикации
-        new_row['published_at'] = format_date(vacancy.published_at)
+        new_row['published_at'] = vacancy.str_publish_date
         # Возвращаем словарь с форматированными значениями
         return new_row
 
     @staticmethod
     def _format_salary(salary: Salary):
-        sal_from = format_sum(salary.salary_from)
-        sal_to = format_sum(salary.salary_to)
-        sal_gross_id = salary.salary_gross
-        sal_gross = gross_naming[sal_gross_id]
-        sal_currency_id = salary.salary_currency
+        sal_from = format_sum(salary.from_amount)
+        sal_to = format_sum(salary.to_amount)
+        sal_gross = gross_naming[salary.gross]
+        sal_currency_id = salary.currency
         sal_currency = cur_naming[sal_currency_id]
         return f'{sal_from} - {sal_to} ({sal_currency}) ({sal_gross})'
 
