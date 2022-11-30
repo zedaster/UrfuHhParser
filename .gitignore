@@ -7,3 +7,6 @@ venv/
 
 # Ignore IDEA files
 .idea/
+
+# Igonre any pycache folder
+**/__pycache__/
