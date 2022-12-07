@@ -10,3 +10,6 @@ venv/
 
 # Igonre any pycache folder
 **/__pycache__/
+
+# Git orig files
+*.orig
