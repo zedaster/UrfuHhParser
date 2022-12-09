@@ -8,4 +8,5 @@ Made by Kazantsev Sergey
 
 All the tests passed
 
-![Test results](test_results.png)
+![Test results 1](test_results.png)
+![Test results 2](test_results_2.png)
