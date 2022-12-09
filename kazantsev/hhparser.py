@@ -2,9 +2,11 @@ import base64
 import csv
 import io
 import itertools
+import os
 import re
 from datetime import datetime
 from itertools import groupby
+from pathlib import Path
 from textwrap import wrap
 from typing import Iterable
 
@@ -23,7 +25,19 @@ from prettytable import PrettyTable, ALL
 matplotlib.use('TkAgg')
 
 WKHTMLTOPDF_PATH = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
-HTML_TEMPLATE_PATH = r'kazantsev/report_template.html'
+HTML_TEMPLATE_PATH = r'report_template.html'
+
+
+def local_path_to_absolute(local_path):
+    """
+    Преобразует локальный путь в абсолютный относительно папки, в которой находиться этот скрипт
+    :param local_path: Локальный путь
+    :type local_path: str
+    :return: Absolute path as string
+    :rtype: str
+    """
+    return Path(__file__).parent.joinpath(local_path).absolute().as_posix()
+
 
 exp_naming = {
     "noExperience": "Нет опыта",
@@ -66,9 +80,14 @@ def to_bool(str_val):
     Преобразует строку 'True' или 'False' в соответсующий bool
     :param str_val: string-значение
     :type str_val: str
-    :return: bool-значение или Exception, если значение не подходит
+    :return: bool-значение или ValueError, если значение не подходит
     :rtype: bool
-    :raises Exception: если значение не равно 'True' или 'False'
+    :raises ValueError: если значение не равно 'True' или 'False'
+
+    >>> to_bool('True')
+    True
+    >>> to_bool('False')
+    False
     """
     if str_val is None:
         return None
@@ -77,7 +96,7 @@ def to_bool(str_val):
     if str_val == 'False':
         return False
 
-    raise Exception(f'Failed to parse bool value "{str_val}"')
+    raise ValueError(f'Failed to parse bool value "{str_val}"')
 
 
 def format_sum(sum_value):
@@ -87,8 +106,29 @@ def format_sum(sum_value):
     :type sum_value: float or int or str
     :return: строчку с данным числом, у которого тысячи разделены пробелом
     :rtype: str
+
+    >>> format_sum(50000)
+    '50 000'
+    >>> format_sum(77888.77)
+    '77 888'
+    >>> format_sum('123456789')
+    '123 456 789'
     """
     return format(int(float(sum_value)), ',').replace(',', ' ')
+
+
+currency_to_rub = {
+    "AZN": 35.68,
+    "BYR": 23.91,
+    "EUR": 59.90,
+    "GEL": 21.74,
+    "KGS": 0.76,
+    "KZT": 0.13,
+    "RUR": 1,
+    "UAH": 1.64,
+    "USD": 60.66,
+    "UZS": 0.0055,
+}
 
 
 class Salary:
@@ -126,19 +166,6 @@ class Salary:
         :return: Средняя зарплата в рублях
         :rtype: float
         """
-        currency_to_rub = {
-            "AZN": 35.68,
-            "BYR": 23.91,
-            "EUR": 59.90,
-            "GEL": 21.74,
-            "KGS": 0.76,
-            "KZT": 0.13,
-            "RUR": 1,
-            "UAH": 1.64,
-            "USD": 60.66,
-            "UZS": 0.0055,
-        }
-
         avg = (self.from_amount + self.to_amount) / 2
         return avg * currency_to_rub[self.currency]
 
@@ -150,12 +177,19 @@ class Salary:
         :type row_dict: typing.Dict[str,str]
         :return: объект Salary
         :rtype: Salary
+        :raises ValueError: Если одно из переданных значений не соотвествует нужному формату
         """
+        currency = row_dict['salary_currency']
+        if type(currency) is not str:
+            raise ValueError(f'salary_currency must be a string')
+        if currency not in currency_to_rub:
+            raise ValueError(f'Currency "{currency}" is not defined.')
+
         return Salary(
             from_amount=int(float(row_dict['salary_from'])),
             to_amount=int(float(row_dict['salary_to'])),
             gross=to_bool(row_dict.get('salary_gross', None)),
-            currency=row_dict['salary_currency']
+            currency=currency
         )
 
 
@@ -237,7 +271,7 @@ class Vacancy:
         :type skills: List[str] or str or None
         :return: Список навыков или None, если он передан в skills
         :rtype: List[str] or None
-        :raises Exception: Если тип skills не является подходящим
+        :raises TypeError: Если тип skills не является подходящим
         """
         if skills is None:
             return None
@@ -246,7 +280,7 @@ class Vacancy:
         if type(skills) is str:
             return [skills]
 
-        raise Exception(f"Type ${type(skills)} is wrong for raw skills")
+        raise TypeError(f"Type ${type(skills)} is wrong for raw skills")
 
     @property
     def year(self):
@@ -316,10 +350,8 @@ class DataSet:
             result.append(clean_value)
         if len(result) == 1:
             return result[0]
-        elif len(result) > 1:
-            return result
         else:
-            return None
+            return result
 
     # Returns header fields and list of other csv fields:
     @staticmethod
@@ -331,10 +363,11 @@ class DataSet:
         :return: Кортеж из списка заголовков и списка строк
         :rtype: Tuple[List[str], List[List[str]]]
         """
-        with open(file_name, 'r', encoding='utf_8_sig') as file:
+        absolute = local_path_to_absolute(file_name)
+        with open(absolute, 'r', encoding='utf_8_sig') as file:
             reader = csv.reader(file)
             rows = [row for row in reader]
-            if len(rows) == 0:
+            if len(rows) == 0 or all(len(row) == 0 or (len(row) == 1 and row[0].strip() == '') for row in rows):
                 return None, None
             list_naming = rows.pop(0)
             return list_naming, rows
@@ -382,7 +415,14 @@ class FilterException(Exception):
 
 class SortException(Exception):
     """
-        Исключение, связанное с сортировкой вакансий
+    Исключение, связанное с сортировкой вакансий
+    """
+    pass
+
+
+class NumberStringException(Exception):
+    """
+    Исключение, свзанное со строкой ограничения по номерам и количеству
     """
     pass
 
@@ -396,7 +436,9 @@ class InputConect:
         filter_value (str): Значение для фильтрации
         sorter (Callable[[Vacancy], any]): Делегат, выдающий ключ для сортировки
         reverse_sort (bool): Перевернута ли сортировка
-        number_string (str): Строка с началом и/или концом и/или количеством вакансий
+        start_number (int or None): Номер вакансии, с которой будет начинаться диапазон (отсчет вакансий с 1)
+        end_number (int or None): Номер вакансии, которой будет окончен диапазон (она не будет включена в него,
+        отсчет вакансий с 1)
         columns_string (str): Строка с названиями столбцов через запятую и пробел
         columns_naming (Dict[str, str]): Словарь кодовое название => русское название
     """
@@ -435,9 +477,20 @@ class InputConect:
         self.filter_value = None
         self.sorter = None
         self.reverse_sort = False
-        self.number_string = None
+        self.start_number = None
+        self.end_number = None
         self.columns_string = None
-        self.columns_naming = {}
+        self.columns_naming = {
+            'name': 'Название',
+            'description': 'Описание',
+            'key_skills': 'Навыки',
+            'experience_id': 'Опыт работы',
+            'premium': 'Премиум-вакансия',
+            'employer_name': 'Компания',
+            'salary': 'Оклад',
+            'area_name': 'Название региона',
+            'published_at': 'Дата публикации вакансии'
+        }
 
     def set_filter_string(self, filter_string):
         """
@@ -482,14 +535,24 @@ class InputConect:
 
     def set_number_string(self, number_string):
         """
-        Устновка параметров для отбора строк по номерам и/или количество
-        :param number_string: Строка формата 'начало' или 'начало конец' или 'начало конец количество',
+        Устновка параметров для установки диапазона
+        :param number_string: Строка формата 'начало' или 'начало конец',
         :type number_string: str
         :return: None
+        :raises NumberStringException: Если строка содержит не 1-2 числа
+        :raises ValueError: Если не удалось спарсить числа
         """
         if number_string == "":
             return
-        self.number_string = number_string
+
+        values = number_string.strip().split(' ')
+        if len(values) == 1:
+            self.start_number = int(values[0])
+        elif len(values) == 2:
+            self.start_number = int(values[0])
+            self.end_number = int(values[1])
+        else:
+            raise NumberStringException('Диапазон вакансий должен содержать 1 или 2 числа.')
 
     def set_columns_string(self, columns_string):
         """
@@ -502,21 +565,13 @@ class InputConect:
             return
         self.columns_string = columns_string
 
-    def set_columns_naming(self, columns_naming):
-        """
-        Устанавливает словарь с названиями столбцов
-        :param columns_naming: Словарь ключ => название
-        :type columns_naming: Dict[str, str]
-        :return: None
-        """
-        self.columns_naming = columns_naming
-
     def print_as_table(self, vacancies):
         """
         Печатает вакансии в виде таблицы в консоли
         :param vacancies: Список вакансий
         :type vacancies: List[Vacancy]
         :return: None
+        :raises FilterException: Если не найдено нужных по фильтрам строк.
         """
         if self.filter_key is not None:
             vacancies = self._filter_vacancies_by_string(vacancies)
@@ -530,10 +585,7 @@ class InputConect:
             return
 
         table_formatter = self._get_table_formatter()
-        if table_formatter is not None:
-            print(table_formatter(table))
-        else:
-            print(table)
+        print(table_formatter(table))
 
     def _create_table(self, vacancies_objects):
         """
@@ -552,7 +604,7 @@ class InputConect:
         n = 1
         for vacancy in vacancies_objects:
             formatted_vacancy = self._format_vacancy(vacancy)
-            table.add_row([n] + list(map(self._cut_string, formatted_vacancy.values())))
+            table.add_row([str(n)] + list(map(self._cut_string, formatted_vacancy.values())))
             n += 1
 
         if n <= 1:
@@ -626,11 +678,10 @@ class InputConect:
         :rtype: Callable
         """
         formatter_args = dict()
-        if self.number_string is not None:
-            values = self.number_string.split(' ')
-            formatter_args['start'] = int(values[0]) - 1
-            if len(values) == 2:
-                formatter_args['end'] = int(values[1]) - 1
+        if self.start_number is not None:
+            formatter_args['start'] = self.start_number - 1
+        if self.end_number is not None:
+            formatter_args['end'] = self.end_number - 1
         if self.columns_string is not None:
             formatter_args['fields'] = ['№'] + self.columns_string.split(', ')
         return lambda t: t.get_string(**formatter_args)
@@ -727,7 +778,8 @@ class VacanciesStatistics:
         Подгружает данные из файла
         :return: None
         """
-        with open(self.file_name, 'r', encoding='utf_8_sig') as file:
+        absolute = local_path_to_absolute(self.file_name)
+        with open(absolute, 'r', encoding='utf_8_sig') as file:
             reader = csv.reader(file)
             title_row = None
             for row in reader:
@@ -788,7 +840,7 @@ class VacanciesStatistics:
         :rtype: Dict[int, float]
         """
         if len(self._prof_salaries_by_year) == 0:
-            return {2022: 0}
+            return {datetime.now().year: 0}
         return dict(map(lambda item: (item[0], int(item[1].value)), self._prof_salaries_by_year.items()))
 
     @property
@@ -799,7 +851,7 @@ class VacanciesStatistics:
         :rtype: Dict[int, int]
         """
         if len(self._prof_counts_by_year) == 0:
-            return {2022: 0}
+            return {datetime.now().year: 0}
         return self._prof_counts_by_year
 
     def _one_percent_filter(self, items_by_cities):
@@ -919,15 +971,6 @@ class ReportColumn:
         :rtype: Iterable[any]
         """
         return self._values_dict.values()
-
-    @property
-    def pairs(self):
-        """
-        Возвращает пары
-        :return: Пары
-        :rtype: Iterable[any]
-        """
-        return self._values_dict.items()
 
 
 def check_all_equal(iterable, exception):
@@ -1273,6 +1316,7 @@ class Report:
     Attributes:
         stats (VacancyStatistics): Статистика вакансий
     """
+
     def __init__(self, stats: VacanciesStatistics):
         """
         Инициализация
@@ -1348,6 +1392,7 @@ class Report:
         :return: None
         :type filename: str
         """
+
         def get_year_items():
             years = self.stats.salaries_by_year.keys()
             salaries = self.stats.salaries_by_year.values()
@@ -1379,7 +1424,7 @@ class Report:
                     'share': f'{share_val}%'
                 }
 
-        env = Environment(loader=FileSystemLoader('..'))
+        env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(__file__))))
         template = env.get_template(HTML_TEMPLATE_PATH)
         html = template.render({
             'prof_name': 'Программист',
@@ -1414,22 +1459,11 @@ def execute_vacancies(file_name, filter_string, sort_column, sort_reversed_strin
     try:
         conect.set_filter_string(filter_string)
         conect.set_sort_params(sort_column, sort_reversed_string)
-    except (FilterException, SortException) as ex:
+        conect.set_number_string(number_string)
+    except (FilterException, SortException, NumberStringException) as ex:
         print(ex)
         return
-    conect.set_number_string(number_string)
     conect.set_columns_string(columns_string)
-    conect.set_columns_naming({
-        'name': 'Название',
-        'description': 'Описание',
-        'key_skills': 'Навыки',
-        'experience_id': 'Опыт работы',
-        'premium': 'Премиум-вакансия',
-        'employer_name': 'Компания',
-        'salary': 'Оклад',
-        'area_name': 'Название региона',
-        'published_at': 'Дата публикации вакансии',
-    })
 
     try:
         data = DataSet(file_name)
@@ -1490,7 +1524,11 @@ def ask_and_execute_reports():
     execute_reports(file_name, prof_name)
 
 
-if __name__ == "__main__":
+def execute_program():
+    """
+    Запускает парсер
+    :return: None
+    """
     ask_for = input('Что вам нужно? (Вакансии/Статистика): ')
     if ask_for.lower() == 'вакансии':
         ask_and_execute_vacancies()
@@ -1498,3 +1536,7 @@ if __name__ == "__main__":
         ask_and_execute_reports()
     else:
         print('Такого мы пока еще не разработали. Перезапустите программу и введите одно из возможных значений.')
+
+
+if __name__ == "__main__":
+    execute_program()
