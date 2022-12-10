@@ -344,6 +344,10 @@ class HhParserTest(TestCase):
         current_year = datetime.now().year
         self.assertDictEqual({current_year: 0}, statics.prof_counts_by_year)
 
+    # Test to profile the program
+    # def test_dataset_initializing(self):
+    #     data = DataSet('./tests/vacancies_by_year.csv')
+
 
 if __name__ == "__main__":
     main()
