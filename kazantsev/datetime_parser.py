@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import ciso8601
 
 
@@ -64,11 +66,11 @@ def _parse_datetime_with_ciso8601(str_datetime):
 #
 #     return datetime(year, month, day, hour, minute, second, tzinfo=tzoffset(None, offset))
 
-def parse_datetime(str_datetime):
+def parse_datetime(str_datetime: str) -> datetime:
     """
     Парсит datetime из строки самым быстрым способом
     :param str_datetime: Строка с датой и временем формата '2022-07-05T20:45:58+0300'
     :return: объект дата-времени
     :rtype datetime
     """
-    _parse_datetime_with_ciso8601(str_datetime)
+    return _parse_datetime_with_ciso8601(str_datetime)
