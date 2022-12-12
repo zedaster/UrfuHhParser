@@ -34,6 +34,7 @@ And then the functions were tested in these 3 cases:
 3. Loop of 9 strings and 1 wrong string for 100`000 times (1 million values in total)
 
 Result of the tests:
+
 ![Datetime tests](images/datetime_tests.png)
 
 Parser with ciso8601 is the fastest here. I've swapped standard parsing for the function. 
