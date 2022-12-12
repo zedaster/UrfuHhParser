@@ -41,3 +41,7 @@ Parser with ciso8601 is the fastest here. I've swapped standard parsing for the 
 Finally, the program works for 62 seconds instead of 155 (It's **40%** of the time)
 
 ![Datetime tests](images/after_profiling.png)
+
+## Year Separation
+
+![Year Separation](images/year_separated_screen.png)
