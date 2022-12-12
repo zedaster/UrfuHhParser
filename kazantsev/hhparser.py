@@ -6,7 +6,6 @@ import os
 import re
 from datetime import datetime
 from itertools import groupby
-from pathlib import Path
 from textwrap import wrap
 from typing import Iterable
 
@@ -21,23 +20,12 @@ from openpyxl.worksheet.worksheet import Worksheet
 from prettytable import PrettyTable, ALL
 
 from kazantsev.datetime_parser import parse_datetime
+from kazantsev.local_path import LocalPath
 
 matplotlib.use('TkAgg')
 
 WKHTMLTOPDF_PATH = r'C:\Program Files\wkhtmltopdf\bin\wkhtmltopdf.exe'
 HTML_TEMPLATE_PATH = r'report_template.html'
-
-
-def local_path_to_absolute(local_path):
-    """
-    Преобразует локальный путь в абсолютный относительно папки, в которой находиться этот скрипт
-    :param local_path: Локальный путь
-    :type local_path: str
-    :return: Absolute path as string
-    :rtype: str
-    """
-    return Path(__file__).parent.joinpath(local_path).absolute().as_posix()
-
 
 exp_naming = {
     "noExperience": "Нет опыта",
@@ -367,7 +355,7 @@ class DataSet:
         :return: Кортеж из списка заголовков и списка строк
         :rtype: Tuple[List[str], List[List[str]]]
         """
-        absolute = local_path_to_absolute(file_name)
+        absolute = LocalPath(file_name).absolute
         with open(absolute, 'r', encoding='utf_8_sig') as file:
             reader = csv.reader(file)
             rows = [row for row in reader]
@@ -782,7 +770,7 @@ class VacanciesStatistics:
         Подгружает данные из файла
         :return: None
         """
-        absolute = local_path_to_absolute(self.file_name)
+        absolute = LocalPath(self.file_name).absolute
         with open(absolute, 'r', encoding='utf_8_sig') as file:
             reader = csv.reader(file)
             title_row = None
