@@ -4,7 +4,6 @@ import io
 import itertools
 import os
 import re
-from datetime import datetime
 from itertools import groupby
 from textwrap import wrap
 from typing import Iterable
@@ -19,8 +18,9 @@ from openpyxl.styles import Font, Side, Border
 from openpyxl.worksheet.worksheet import Worksheet
 from prettytable import PrettyTable, ALL
 
-from kazantsev.datetime_parser import parse_datetime
-from kazantsev.local_path import LocalPath
+from kazantsev.local_path import get_local_path
+from kazantsev.models import Salary, Vacancy
+from kazantsev.vacancies_staticstics import VacanciesStatistics, SingleProcessVacanciesStatistics
 
 matplotlib.use('TkAgg')
 
@@ -63,30 +63,6 @@ reversed_bool_naming = {
 }
 
 
-def to_bool(str_val):
-    """
-    Преобразует строку 'True' или 'False' в соответсующий bool
-    :param str_val: string-значение
-    :type str_val: str
-    :return: bool-значение или ValueError, если значение не подходит
-    :rtype: bool
-    :raises ValueError: если значение не равно 'True' или 'False'
-
-    >>> to_bool('True')
-    True
-    >>> to_bool('False')
-    False
-    """
-    if str_val is None:
-        return None
-    if str_val == 'True':
-        return True
-    if str_val == 'False':
-        return False
-
-    raise ValueError(f'Failed to parse bool value "{str_val}"')
-
-
 def format_sum(sum_value):
     """
     Преобразовываем указанное число в строчку, где у числа тысячи разделены пробелами
@@ -103,190 +79,6 @@ def format_sum(sum_value):
     '123 456 789'
     """
     return format(int(float(sum_value)), ',').replace(',', ' ')
-
-
-currency_to_rub = {
-    "AZN": 35.68,
-    "BYR": 23.91,
-    "EUR": 59.90,
-    "GEL": 21.74,
-    "KGS": 0.76,
-    "KZT": 0.13,
-    "RUR": 1,
-    "UAH": 1.64,
-    "USD": 60.66,
-    "UZS": 0.0055,
-}
-
-
-class Salary:
-    """
-    Класс для представления зарплаты
-
-    Attributes:
-        from_amount (int): Нижняя граница вилки оклада
-        to_amount (int): Верхняя граница вилки оклада
-        currency (str): Валюта оклада
-        gross (bool or None): Брутто оклад или нет?
-    """
-
-    def __init__(self, from_amount: int, to_amount: int, currency: str, gross=None):
-        """
-        Инициализирует объект Salary, конвертация здесь не выполняется
-        :param from_amount: Нижняя граница вилки оклада
-        :type from_amount: int
-        :param to_amount: Верхняя граница вилки оклада
-        :type to_amount: int
-        :param currency: Валюта оклада
-        :type currency: str
-        :param gross: Брутто оклад или нет?
-        :type gross: Union[bool, None]
-        """
-        self.from_amount = from_amount
-        self.to_amount = to_amount
-        self.gross = gross
-        self.currency = currency
-
-    @property
-    def avg_ruble_amount(self):
-        """
-        Вычисляет среднюю зарплату из вилки и переводит ее в рубли
-        :return: Средняя зарплата в рублях
-        :rtype: float
-        """
-        avg = (self.from_amount + self.to_amount) / 2
-        return avg * currency_to_rub[self.currency]
-
-    @staticmethod
-    def parse_from_dict(row_dict):
-        """
-        Переводит словарь строка -> строка в объект Salary
-        :param row_dict: словарь
-        :type row_dict: typing.Dict[str,str]
-        :return: объект Salary
-        :rtype: Salary
-        :raises ValueError: Если одно из переданных значений не соотвествует нужному формату
-        """
-        currency = row_dict['salary_currency']
-        if type(currency) is not str:
-            raise ValueError(f'salary_currency must be a string')
-        if currency not in currency_to_rub:
-            raise ValueError(f'Currency "{currency}" is not defined.')
-
-        return Salary(
-            from_amount=int(float(row_dict['salary_from'])),
-            to_amount=int(float(row_dict['salary_to'])),
-            gross=to_bool(row_dict.get('salary_gross', None)),
-            currency=currency
-        )
-
-
-class Vacancy:
-    """
-    Класс для представления вакансии
-
-    Attributes:
-        name (str): Название
-        description (str): Описание
-        salary (Salary): Зарпалата
-        area_name (str): Название региона или города
-        published_at (datetime): Время публикации вакансии
-        key_skills (List[str] or None): Список ключевых навыков
-        experience_id (str or None): Идендитификатор опыта работы (см. словарь exp_naming)
-        premium (bool or None): Премиум-вакансия
-        employer_name (str or None): Название работодателя
-    """
-
-    def __init__(self, name: str, salary: Salary, area_name: str, published_at,
-                 description=None, key_skills=None, experience_id=None, premium=None, employer_name=None):
-        """
-        Инициализирует объект Vacancy
-        :param name: Название вакансии
-        :type name: str
-        :param salary: Зарплата
-        :type salary: Salary
-        :param area_name: Название региона или города
-        :type area_name: str
-        :param published_at: Время публикации вакансии
-        :type published_at: datetime
-        :param description: Описание вакансии
-        :type description: str
-        :param key_skills: Список ключевых навыков
-        :type key_skills: List[str] or None
-        :param experience_id: Идендитификатор опыта работы (см. словарь exp_naming)
-        :type experience_id: str or None
-        :param premium: Премиум-вакансия
-        :type premium: bool or None
-        :param employer_name: Название работодателя
-        :type employer_name: str
-        """
-        self.name = name
-        self.description = description
-        self.key_skills = key_skills
-        self.experience_id = experience_id
-        self.premium = premium
-        self.employer_name = employer_name
-        self.salary = salary
-        self.area_name = area_name
-        self.published_at = published_at
-
-    @staticmethod
-    def parse_from_dict(row_dict: dict):
-        """
-        Переводит словарь строка -> строка в объект Vacancy
-        :param row_dict: словарь
-        :type row_dict: typing.Dict[str,str]
-        :return: объект Vacancy
-        :rtype: Vacancy
-        """
-        return Vacancy(
-            name=row_dict['name'],
-            salary=Salary.parse_from_dict(row_dict),
-            area_name=row_dict['area_name'],
-            published_at=parse_datetime(row_dict['published_at']),
-            description=row_dict.get('description', None),
-            key_skills=Vacancy._list_skills(row_dict.get('key_skills', None)),
-            experience_id=row_dict.get('experience_id', None),
-            premium=to_bool(row_dict.get('premium', None)),
-            employer_name=row_dict.get('employer_name', None)
-        )
-
-    @staticmethod
-    def _list_skills(skills):
-        """
-        Преобразует строку с навыком в список навыков. Список навыков или None возращает обратно
-        :param skills: Строка с навыком, или список навыков, или None
-        :type skills: List[str] or str or None
-        :return: Список навыков или None, если он передан в skills
-        :rtype: List[str] or None
-        :raises TypeError: Если тип skills не является подходящим
-        """
-        if skills is None:
-            return None
-        if type(skills) is list:
-            return skills
-        if type(skills) is str:
-            return [skills]
-
-        raise TypeError(f"Type ${type(skills)} is wrong for raw skills")
-
-    @property
-    def year(self):
-        """
-        Возвращает год публикации вакансии
-        :return: Год
-        :rtype: int
-        """
-        return self.published_at.year
-
-    @property
-    def str_publish_date(self):
-        """
-        Возвращает отформатированную строку даты публикации
-        :return: Дата публикации в формате ДД.ММ.ГГГГ
-        :rtype: str
-        """
-        return self.published_at.strftime('%d.%m.%Y')
 
 
 class EmptyFileException(Exception):
@@ -355,7 +147,7 @@ class DataSet:
         :return: Кортеж из списка заголовков и списка строк
         :rtype: Tuple[List[str], List[List[str]]]
         """
-        absolute = LocalPath(file_name).absolute
+        absolute = get_local_path(file_name).absolute()
         with open(absolute, 'r', encoding='utf_8_sig') as file:
             reader = csv.reader(file)
             rows = [row for row in reader]
@@ -700,219 +492,6 @@ class InputConect:
         if filtered_peek is None:
             raise FilterException('Ничего не найдено')
         return filtered_peek[1]
-
-
-class AvgCounter:
-    """
-    Класс для подсчета среднего арифметического значения
-
-    Attributes:
-        value (float): Среднее арифметическое значение
-    """
-
-    def __init__(self, first_value=None):
-        """
-        Инициализирует объект счетчика среднего арифметического
-        :param first_value: Первое значение
-        :type first_value: float
-        """
-        self.value = 0
-        self._sum = 0
-        self._len = 0
-        if first_value is not None:
-            self.add(first_value)
-
-    def add(self, value):
-        """
-        Добавляет значение для подсчета
-        :param value: Значение
-        :type value: float
-        :return: None
-        """
-        self._sum += value
-        self._len += 1
-        self.value = self._sum / self._len
-
-
-class VacanciesStatistics:
-    """
-    Класс для статистики по вакансиям
-
-    Attributes:
-        file_name (str): Путь к файлу с таблицей
-        prof_name (str): Название професии, для которой сделана статистика
-        counts_by_year (Dict[int, int]): Словарь год => кол-во вакансий
-    """
-
-    def __init__(self, file_name, prof_name):
-        """
-        Инициализирует объект класса для определенной професии и прогружает вакансии
-        :param file_name: Путь к файлу с таблицей
-        :type file_name: str
-        :param prof_name: Название професии
-        :type prof_name: str
-        """
-        self.file_name = file_name
-        self.prof_name = prof_name
-
-        self._salaries_by_year = {}
-        self.counts_by_year = {}
-        self._prof_salaries_by_year = {}
-        self._prof_counts_by_year = {}
-        self._salaries_by_cities = {}
-
-        self._counts_by_cities = {}
-        self._vacancies_count = 0
-        self._init_data()
-
-    def _init_data(self):
-        """
-        Подгружает данные из файла
-        :return: None
-        """
-        absolute = LocalPath(self.file_name).absolute
-        with open(absolute, 'r', encoding='utf_8_sig') as file:
-            reader = csv.reader(file)
-            title_row = None
-            for row in reader:
-                if title_row is None:
-                    title_row = row
-                    continue
-                row_dict = self._to_row_dict(title_row, row)
-                if row_dict is None:
-                    continue
-                vacancy = Vacancy.parse_from_dict(row_dict)
-                self._update_statistics(vacancy)
-
-    def _update_statistics(self, vacancy):
-        """
-        Обновляет статистику в объекте по данной вакансиий
-        :param vacancy: Вакансия
-        :type vacancy: Vacancy
-        :return: None
-        """
-
-        def change_salary_and_count_stats(salaries: dict, counts: dict, key, salary):
-            if key not in salaries:
-                salaries[key] = AvgCounter(salary)
-                counts[key] = 1
-            else:
-                salaries[key].add(salary)
-                counts[key] += 1
-
-        salary = vacancy.salary.avg_ruble_amount
-        year = vacancy.year
-        # Year stats
-        change_salary_and_count_stats(self._salaries_by_year, self.counts_by_year, year, salary)
-
-        # City stats
-        self._vacancies_count += 1
-        city = vacancy.area_name
-        change_salary_and_count_stats(self._salaries_by_cities, self._counts_by_cities, city, salary)
-
-        # Prof stats
-        if self.prof_name not in vacancy.name:
-            return
-        change_salary_and_count_stats(self._prof_salaries_by_year, self._prof_counts_by_year, year, salary)
-
-    @property
-    def salaries_by_year(self):
-        """
-        Возвращает зарплаты по годам для всех профессий
-        :return: Словарь год => средняя зарплата
-        :rtype: Dict[int, float]
-        """
-        return dict(map(lambda item: (item[0], int(item[1].value)), self._salaries_by_year.items()))
-
-    @property
-    def prof_salaries_by_year(self):
-        """
-        Возвращает зарплаты по годам для профессий self.prof_name
-        :return: Словарь год => средняя зарплата
-        :rtype: Dict[int, float]
-        """
-        if len(self._prof_salaries_by_year) == 0:
-            return {datetime.now().year: 0}
-        return dict(map(lambda item: (item[0], int(item[1].value)), self._prof_salaries_by_year.items()))
-
-    @property
-    def prof_counts_by_year(self):
-        """
-        Возвращает количество вакансий по годам для профессий self.prof_name
-        :return: Словарь год => кол-во вакансий
-        :rtype: Dict[int, int]
-        """
-        if len(self._prof_counts_by_year) == 0:
-            return {datetime.now().year: 0}
-        return self._prof_counts_by_year
-
-    def _one_percent_filter(self, items_by_cities):
-        """
-        Фильтрует пары город и выдает только те, города которых занимают >= 1% от списка всех вакансий
-        :param items_by_cities: Коллекция из кортежа (город, значение)
-        :type items_by_cities: Iterable[Tuple[str, any]]
-        :return: Пары, города которых занимают >= 1% от списка всех вакансий
-        :rtype: Iterable[Tuple[str, any]]
-        """
-        one_percent = self._vacancies_count / 100
-        for city, value in items_by_cities:
-            if self._counts_by_cities[city] >= one_percent:
-                yield city, value
-
-    @property
-    def top_10_salaries_by_cities(self):
-        """
-        Возвращает топ 10 пар город-зарплата
-        :return: Словарь город - зарплата с 10 значениями в порядке убывания
-        :rtype: Dict[str, int]
-        """
-        salaries = map(lambda item: (item[0], int(item[1].value)), self._salaries_by_cities.items())
-        filtered_items = self._one_percent_filter(salaries)
-        return dict(sorted(filtered_items, key=lambda item: -item[1])[:10])
-
-    @property
-    def top_10_cities_shares(self):
-        """
-        Возвращает топ 10 городов, где больше всего доля вакансий
-        :return: Словарь город - доля (от 0 до 1) с 10 значениями в порядке убывания
-        :rtype: Dict[str, float]
-        """
-        result = {}
-        for city, count in self._one_percent_filter(self._counts_by_cities.items()):
-            result[city] = round(count / self._vacancies_count, 4)
-        return dict(sorted(result.items(), key=lambda item: -item[1])[:10])
-
-    def get_top_10_percent_cities_shares(self, digits=None):
-        """
-        Возвращает топ 10 городов, где больше всего доля вакансий в процентах
-        :return: Словарь город - доля (в процетах) с 10 значениями в порядке убывания
-        :rtype: Dict[str, float]
-        """
-        handler = lambda n: 100 * n
-        if digits is not None:
-            handler = lambda n: round(100 * n, digits)
-
-        return {k: handler(v) for k, v in self.top_10_cities_shares.items()}
-
-    @staticmethod
-    def _to_row_dict(title_row, row):
-        """
-        Преобразует заголовочную строку и строку со значениями в словарь вакансии
-        :param title_row: Заголовочная строка
-        :type title_row: List[str]
-        :param row: Строка со значениями
-        :type row: List[str]
-        :return: Словарь вакансии
-        :rtype: Dict[str, str]
-        """
-        if len(title_row) != len(row):
-            return None
-        row_dict = {}
-        for i in range(len(row)):
-            if row[i] == '':
-                return None
-            row_dict[title_row[i]] = row[i]
-        return row_dict
 
 
 class ReportColumn:
@@ -1322,10 +901,12 @@ class Report:
         Печатает репорт в консоль
         :return: None
         """
-        print('Динамика уровня зарплат по годам:', self.stats.salaries_by_year)
-        print('Динамика количества вакансий по годам:', self.stats.counts_by_year)
-        print('Динамика уровня зарплат по годам для выбранной профессии:', self.stats.prof_salaries_by_year)
-        print('Динамика количества вакансий по годам для выбранной профессии:', self.stats.prof_counts_by_year)
+        print('Динамика уровня зарплат по годам:', dict(sorted(self.stats.salaries_by_year.items())))
+        print('Динамика количества вакансий по годам:', dict(sorted(self.stats.counts_by_year.items())))
+        print('Динамика уровня зарплат по годам для выбранной профессии:',
+              dict(sorted(self.stats.prof_salaries_by_year.items())))
+        print('Динамика количества вакансий по годам для выбранной профессии:',
+              dict(sorted(self.stats.prof_counts_by_year.items())))
         print('Уровень зарплат по городам (в порядке убывания):', self.stats.top_10_salaries_by_cities)
         print('Доля вакансий по городам (в порядке убывания):', self.stats.top_10_cities_shares)
 
@@ -1478,7 +1059,8 @@ def execute_reports(file_name, prof_name):
     :type prof_name: str
     :return: None
     """
-    stats = VacanciesStatistics(file_name, prof_name)
+    # TODO: Change class
+    stats = SingleProcessVacanciesStatistics(file_name, prof_name)
     report = Report(stats)
     print('Формирование таблицы...')
     report.generate_excel('report.csv')

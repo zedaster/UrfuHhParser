@@ -46,3 +46,7 @@ Finally, the program works for 62 seconds instead of 155 (It's **40%** of the ti
 ## Year Separation
 
 ![Year Separation](images/year_separated_screen.png)
+
+## Multiprocessing Test
+
+![Multiprocessing Test](images/multi_proccesing_results.png)

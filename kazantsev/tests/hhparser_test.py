@@ -1,4 +1,6 @@
 import doctest
+from datetime import datetime
+from pathlib import Path
 from unittest import TestCase, main
 from unittest.mock import patch
 
@@ -326,23 +328,6 @@ class HhParserTest(TestCase):
         conect = InputConect()
         conect.print_as_table([])
         self.assertEqual('Нет данных\n', mock_stdout.getvalue())
-
-    @patch('sys.stdout', new_callable=io.StringIO)
-    def test_statics_print(self, mock_stdout):
-        stats = VacanciesStatistics("./tests/vacancies_by_year_100k.csv", "Программист")
-        Report(stats).print()
-        with open(Path(__file__).with_name('coder_stats_test.txt'), mode='r', encoding='utf-8') as test_output:
-            self.assertEqual(test_output.read(), mock_stdout.getvalue())
-
-    def test_zero_prof_salaries(self):
-        statics = VacanciesStatistics('./tests/empty.csv', 'Программист')
-        current_year = datetime.now().year
-        self.assertDictEqual({current_year: 0}, statics.prof_salaries_by_year)
-
-    def test_zero_prof_counts(self):
-        statics = VacanciesStatistics('./tests/empty.csv', 'Программист')
-        current_year = datetime.now().year
-        self.assertDictEqual({current_year: 0}, statics.prof_counts_by_year)
 
     # Test to profile the program
     # def test_dataset_initializing(self):
