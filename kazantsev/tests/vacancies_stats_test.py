@@ -40,6 +40,15 @@ class VacanciesStatsSpeedTest(TestCase):
         self.assertDictEqual(self.prof_salaries, stats.prof_salaries_by_year)
         self.assertDictEqual(self.prof_counts, stats.prof_counts_by_year)
 
+    def test_concurrent_process_four_stats(self):
+        main_csv = get_local_path('./tests/vacancies_by_year.csv')
+        folder = get_local_path('./year_separated')
+        stats = ConcurrentFuturesVacanciesStatics.from_chunk_folder(main_csv, folder, 'программист')
+        self.assertDictEqual(self.year_salaries, stats.salaries_by_year)
+        self.assertDictEqual(self.year_counts, stats.counts_by_year)
+        self.assertDictEqual(self.prof_salaries, stats.prof_salaries_by_year)
+        self.assertDictEqual(self.prof_counts, stats.prof_counts_by_year)
+
 
 class VacanciesStatsTest(TestCase):
     @classmethod
@@ -68,8 +77,15 @@ class VacanciesStatsTest(TestCase):
     @patch('sys.stdout', new_callable=io.StringIO)
     def test_multi_stats_print(self, mock_stdout):
         main_csv = get_local_path('./tests/vacancies_by_year_100k.csv')
-        folder = get_local_path('./year_separated')
+        folder = get_local_path('./year_separated/')
         stats = MultiProcessVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
+        self._test_stats_print(stats, mock_stdout)
+
+    @patch('sys.stdout', new_callable=io.StringIO)
+    def test_concurrent_stats_print(self, mock_stdout):
+        main_csv = get_local_path('./tests/vacancies_by_year_100k.csv')
+        folder = get_local_path('./year_separated/')
+        stats = ConcurrentFuturesVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
         self._test_stats_print(stats, mock_stdout)
 
     def test_single_zero_prof_salaries(self):
@@ -79,7 +95,14 @@ class VacanciesStatsTest(TestCase):
 
     def test_multi_zero_prof_salaries(self):
         main_csv = get_local_path('./tests/empty.csv')
-        stats = MultiProcessVacanciesStatics.from_year_separated(YearSeparated(main_csv), 'Программист')
+        folder = get_local_path('./tests/empty_folder')
+        stats = MultiProcessVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
+        self._test_zero_prof_salaries(stats)
+
+    def test_concurrent_zero_prof_salaries(self):
+        main_csv = get_local_path('./tests/empty.csv')
+        folder = get_local_path('./tests/empty_folder')
+        stats = ConcurrentFuturesVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
         self._test_zero_prof_salaries(stats)
 
     def test_single_zero_prof_counts(self):
@@ -89,5 +112,12 @@ class VacanciesStatsTest(TestCase):
 
     def test_multi_zero_prof_counts(self):
         main_csv = get_local_path('./tests/empty.csv')
-        stats = MultiProcessVacanciesStatics.from_year_separated(YearSeparated(main_csv), 'Программист')
+        folder = get_local_path('./tests/empty_folder')
+        stats = MultiProcessVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
+        self._test_zero_prof_counts(stats)
+
+    def test_concurrent_zero_prof_counts(self):
+        main_csv = get_local_path('./tests/empty.csv')
+        folder = get_local_path('./tests/empty_folder')
+        stats = ConcurrentFuturesVacanciesStatics.from_chunk_folder(main_csv, folder, 'Программист')
         self._test_zero_prof_counts(stats)

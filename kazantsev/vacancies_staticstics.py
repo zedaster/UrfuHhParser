@@ -1,5 +1,6 @@
 import csv
 import multiprocessing
+import concurrent.futures as pool
 from abc import ABC, abstractmethod
 from datetime import datetime
 from multiprocessing import Process
@@ -314,6 +315,7 @@ class MultiProcessVacanciesStatics(VacanciesStatistics):
             general_table_process.join()
             self._top_10_salaries_by_cities = dict(city_dicts['top_10_salaries_by_cities'])
             self._top_10_cities_shares = dict(city_dicts['top_10_cities_shares'])
+            self._city_stats_loaded = True
 
     @staticmethod
     def _handle_one_chunk(prof_name, path: Path, dicts):
@@ -336,6 +338,104 @@ class MultiProcessVacanciesStatics(VacanciesStatistics):
     @staticmethod
     def from_year_separated(year_separated: YearSeparated, prof_name: str):
         return MultiProcessVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths, prof_name)
+
+    @property
+    def prof_name(self):
+        return self._prof_name
+
+    @property
+    def salaries_by_year(self):
+        if len(self._salaries_by_year) == 0:
+            return {datetime.now().year: 0}
+        return self._salaries_by_year
+
+    @property
+    def counts_by_year(self):
+        if len(self._counts_by_year) == 0:
+            return {datetime.now().year: 0}
+        return self._counts_by_year
+
+    @property
+    def prof_salaries_by_year(self):
+        if len(self._prof_salaries_by_year) == 0:
+            return {datetime.now().year: 0}
+        return self._prof_salaries_by_year
+
+    @property
+    def prof_counts_by_year(self):
+        if len(self._prof_counts_by_year) == 0:
+            return {datetime.now().year: 0}
+        return self._prof_counts_by_year
+
+    @property
+    def top_10_salaries_by_cities(self):
+        if not self._city_stats_loaded:
+            self._load_city_stats()
+        return self._top_10_salaries_by_cities
+
+    @property
+    def top_10_cities_shares(self):
+        if not self._city_stats_loaded:
+            self._load_city_stats()
+        return self._top_10_cities_shares
+
+
+class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
+    def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str, preload_city_stats=False):
+        self._prof_name = prof_name
+        self._general_table = general_table
+        self._city_stats_loaded = preload_city_stats
+        self._salaries_by_year = dict()
+        self._counts_by_year = dict()
+        self._prof_salaries_by_year = dict()
+        self._prof_counts_by_year = dict()
+
+        with pool.ProcessPoolExecutor() as executor:
+            if preload_city_stats:
+                future_general = executor.submit(self._handle_general_table)
+
+            for chunk_dict in executor.map(self._handle_one_chunk, chunk_paths, timeout=None):
+                self._salaries_by_year.update(chunk_dict['salaries'])
+                self._counts_by_year.update(chunk_dict['counts'])
+                self._prof_salaries_by_year.update(chunk_dict['prof_salaries'])
+                self._prof_counts_by_year.update(chunk_dict['prof_counts'])
+
+            if preload_city_stats:
+                city_dicts = future_general.result()
+                self._top_10_salaries_by_cities = city_dicts['top_10_salaries_by_cities']
+                self._top_10_cities_shares = city_dicts['top_10_cities_shares']
+
+    def _load_city_stats(self):
+        with pool.ProcessPoolExecutor() as executor:
+            future_general = executor.submit(self._handle_general_table)
+            city_dicts = future_general.result()
+            self._top_10_salaries_by_cities = city_dicts['top_10_salaries_by_cities']
+            self._top_10_cities_shares = city_dicts['top_10_cities_shares']
+            self._city_stats_loaded = True
+
+    def _handle_one_chunk(self, path: Path):
+        stats = SingleProcessVacanciesStatistics(path, self._prof_name)
+        return {
+            'salaries': stats.salaries_by_year,
+            'counts': stats.counts_by_year,
+            'prof_salaries': stats.prof_salaries_by_year,
+            'prof_counts': stats.prof_counts_by_year,
+        }
+
+    def _handle_general_table(self):
+        stats = SingleProcessVacanciesStatistics(self._general_table, self._prof_name)
+        return {
+            'top_10_salaries_by_cities': stats.top_10_salaries_by_cities,
+            'top_10_cities_shares': stats.top_10_cities_shares
+        }
+
+    @staticmethod
+    def from_chunk_folder(general_table: Path, chunk_folder: Path, prof_name: str):
+        return ConcurrentFuturesVacanciesStatics(general_table, (p for p in chunk_folder.rglob('*')), prof_name)
+
+    @staticmethod
+    def from_year_separated(year_separated: YearSeparated, prof_name: str):
+        return ConcurrentFuturesVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths, prof_name)
 
     @property
     def prof_name(self):
