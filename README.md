@@ -50,3 +50,9 @@ Finally, the program works for 62 seconds instead of 155 (It's **40%** of the ti
 ## Multiprocessing Test
 
 ![Multiprocessing Test](images/multi_proccesing_results.png)
+
+## Currency Dataframes
+
+![Frequency of Currencies](images/currency_freq.png)
+
+![CSV of Currency Dataframe](images/currency_csv.png)
