@@ -13,20 +13,26 @@ from kazantsev.local_path import get_local_path
 
 class CurrencyRates:
     """
-    Класс для работы с курсами из таблицы
+    Класс для работы с курсами валют из ЦБ РФ
+
+    Attributes:
+        dataframe - Таблица с курсами в виде Pandas-датафрейма
     """
     def __init__(self, currencies: Set[str], min_date: datetime, max_date: datetime):
         """
-
-        :param currencies:
-        :param min_date:
-        :param max_date:
+        Инициализацизирует данные с частотой раз в месяц
+        :param currencies: Сет из тикеров допустимых валют
+        :type: Set[str]
+        :param min_date: Минимальная дата выборки
+        :type: datetime
+        :param max_date: Предельная дата выборки
+        :type: datetime
         """
         def get_days(min_date: datetime, max_date: datetime):
             current_date = min_date
             while current_date < max_date:
                 yield current_date
-                current_date += relativedelta(months=12)
+                current_date += relativedelta(months=1)
 
         result = {}
         with concurrent.futures.ThreadPoolExecutor() as executor:
@@ -49,6 +55,12 @@ class CurrencyRates:
         result_dict[date] = series
 
     def save_to_csv(self, path: Path):
+        """
+        Сохраняет датафрейм в указанный CSV-файл
+        :param path: Путь к CSV-файлу
+        :type path: Path
+        :return: None
+        """
         self.dataframe.to_csv(path)
 
 
