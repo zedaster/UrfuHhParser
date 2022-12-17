@@ -4,10 +4,11 @@ from itertools import repeat
 from pathlib import Path
 from typing import Set
 
-import pandas
+import pandas as pd
 import requests
 from dateutil.relativedelta import relativedelta
 
+from kazantsev.currency_frequency import get_min_max_datetimes, get_most_frequency_currencies
 from kazantsev.local_path import get_local_path
 
 
@@ -18,6 +19,7 @@ class CurrencyRates:
     Attributes:
         dataframe - Таблица с курсами в виде Pandas-датафрейма
     """
+
     def __init__(self, currencies: Set[str], min_date: datetime, max_date: datetime):
         """
         Инициализацизирует данные с частотой раз в месяц
@@ -28,6 +30,7 @@ class CurrencyRates:
         :param max_date: Предельная дата выборки
         :type: datetime
         """
+
         def get_days(min_date: datetime, max_date: datetime):
             current_date = min_date
             while current_date < max_date:
@@ -37,7 +40,7 @@ class CurrencyRates:
         result = {}
         with concurrent.futures.ThreadPoolExecutor() as executor:
             executor.map(self._get_day_rates, get_days(min_date, max_date), repeat(currencies), repeat(result))
-        df = pandas.DataFrame(result).transpose()
+        df = pd.DataFrame(result).transpose()
         df.index.name = 'date'
         self.dataframe = df
 
@@ -47,7 +50,7 @@ class CurrencyRates:
         resp = requests.get(url)
         if resp.status_code != 200:
             raise Exception(f'Status code is {resp.status_code} for get from "{url}"')
-        df = pandas.read_xml(resp.text)
+        df = pd.read_xml(resp.text)
         df = df[df.CharCode.isin(currencies)][['CharCode', 'Nominal', 'Value']]
         df['Rate'] = df['Value'].map(lambda x: float(x.replace(',', '.'))) / df['Nominal']
         df = df[['CharCode', 'Rate']]
@@ -64,7 +67,10 @@ class CurrencyRates:
         self.dataframe.to_csv(path)
 
 
-# rates = CurrencyRates({'KZT', 'RUR', 'USD', 'UAH', 'EUR', 'BYR'}, datetime(2003, 1, 1), datetime(2020, 12, 1))
-# rates.save_to_csv(get_local_path('currency_rates.csv'))
+path = get_local_path('./tests/vacancies_dif_currencies.csv')
+min_date, max_date = get_min_max_datetimes(path)
+currencies = get_most_frequency_currencies(path)
+rates = CurrencyRates(currencies, min_date, max_date)
+rates.save_to_csv(get_local_path('currency_rates.csv'))
 
 # CurrencyRates._get_day_rates(datetime(2020, 1, 1))
