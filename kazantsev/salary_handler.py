@@ -33,7 +33,7 @@ def _add_salary_column(row, rates):
         if rate is None:
             return row
         amount *= rate
-    row['salary'] = amount
+    row['salary'] = round(amount, 0)
     return row
 
 
