@@ -7,9 +7,7 @@ from typing import Set
 import pandas as pd
 import requests
 from dateutil.relativedelta import relativedelta
-
-from kazantsev.currency_frequency import get_min_max_datetimes, get_most_frequency_currencies
-from kazantsev.local_path import get_local_path
+from pandas import DataFrame
 
 
 class CurrencyRates:
@@ -20,7 +18,15 @@ class CurrencyRates:
         dataframe - Таблица с курсами в виде Pandas-датафрейма
     """
 
-    def __init__(self, currencies: Set[str], min_date: datetime, max_date: datetime):
+    def __init__(self, df: DataFrame):
+        """
+        Инициализацизирует данные из датафрейма
+        :param df: DataFrame
+        """
+        self.dataframe = df
+
+    @staticmethod
+    def from_api(currencies: Set[str], min_date: datetime, max_date: datetime):
         """
         Инициализацизирует данные с частотой раз в месяц
         :param currencies: Сет из тикеров допустимых валют
@@ -39,10 +45,43 @@ class CurrencyRates:
 
         result = {}
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            executor.map(self._get_day_rates, get_days(min_date, max_date), repeat(currencies), repeat(result))
-        df = pd.DataFrame(result).transpose()
+            executor.map(CurrencyRates._get_day_rates, get_days(min_date, max_date), repeat(currencies), repeat(result))
+        df = pd.DataFrame(result).transpose().sort_index()
         df.index.name = 'date'
-        self.dataframe = df
+        return CurrencyRates(df)
+
+    @staticmethod
+    def from_csv(path: Path):
+        """
+        Загружает данные из CSV файла
+        :param path: Путь к CSV файлу
+        :return: Экземпляр класа CurrencyRates
+        """
+        df = pd.read_csv(path)
+        df['date'] = pd.to_datetime(df['date'])
+        return CurrencyRates(df)
+
+    def get_rate(self, currency: str, date: datetime):
+        """
+        Получает курс валюты за месяц и год данного числа
+        :param currency: Тикер валюты (str)
+        :param date: Дата (datetime)
+        :return: Курс валюты (float)
+        """
+        if currency not in self.dataframe.columns:
+            raise ValueError(f"Currency {currency} does not exist in the dataframe")
+        first_date = self.dataframe['date'].iloc[0]
+        if date < first_date:
+            raise ValueError(f'Date {date} is less than date range of the rates')
+        last_date = self.dataframe['date'].iloc[-1]
+        if date > last_date:
+            raise ValueError(f'Date {date} is bigger than date range of the rates')
+
+        df = self.dataframe
+        try:
+            return df[(df['date'].dt.year == date.year) & (df['date'].dt.month == date.month)][currency].values[0]
+        except IndexError:
+            raise ValueError(f'No rates for {date}')
 
     @staticmethod
     def _get_day_rates(date: datetime, currencies, result_dict):
@@ -67,10 +106,10 @@ class CurrencyRates:
         self.dataframe.to_csv(path)
 
 
-path = get_local_path('./tests/vacancies_dif_currencies.csv')
-min_date, max_date = get_min_max_datetimes(path)
-currencies = get_most_frequency_currencies(path)
-rates = CurrencyRates(currencies, min_date, max_date)
-rates.save_to_csv(get_local_path('currency_rates.csv'))
+# path = get_local_path('./tests/vacancies_dif_currencies.csv')
+# min_date, max_date = get_min_max_datetimes(path)
+# currencies = get_most_frequency_currencies(path)
+# rates = CurrencyRates.from_api(currencies, min_date, max_date)
+# rates.save_to_csv(get_local_path('currency_rates.csv'))
 
 # CurrencyRates._get_day_rates(datetime(2020, 1, 1))

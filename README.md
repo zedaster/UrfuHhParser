@@ -55,4 +55,5 @@ Finally, the program works for 62 seconds instead of 155 (It's **40%** of the ti
 
 ![Frequency of Currencies](images/currency_freq.png)
 
-![CSV of Currency Dataframe](images/currency_csv.png)
+[Link to currency_rates.csv](kazantsev/currency_rates.csv)
+[Link to vacancies_one_currency.csv](kazantsev/vacancies_one_currency.csv)

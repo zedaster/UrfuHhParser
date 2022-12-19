@@ -32,7 +32,7 @@ def get_min_max_datetimes(path: Path, datetime_column_name='published_at') -> Tu
     :return: Кортеж из минимальной и максимальной даты
     :rtype: Tuple[datetime, datetime]
     """
-    df = pd.read_csv(path).dropna()
+    df = pd.read_csv(path)
     min_date = parse_datetime(df[datetime_column_name].min())
     max_date = parse_datetime(df[datetime_column_name].max())
     return min_date, max_date
