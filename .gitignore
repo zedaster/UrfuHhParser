@@ -3,6 +3,7 @@
 # But except currency_rates.csv
 !kazantsev/currency_rates.csv
 !kazantsev/vacancies_one_currency.csv
+!kazantsev/api_vacancies.csv
 
 # Venv is ignored automaticly die to .gitgonre inside the venv folder.
 # It's written just to ensure and complete the task.

@@ -58,3 +58,5 @@ Finally, the program works for 62 seconds instead of 155 (It's **40%** of the ti
 [Link to currency_rates.csv](kazantsev/currency_rates.csv)
 
 [Link to vacancies_one_currency.csv](kazantsev/vacancies_one_currency.csv)
+
+[Link to vacancies from hh.ru API](kazantsev/api_vacancies.csv)
