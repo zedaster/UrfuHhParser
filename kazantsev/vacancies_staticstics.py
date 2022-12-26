@@ -1,12 +1,13 @@
-import csv
-import multiprocessing
 import concurrent.futures as pool
+import csv
 from abc import ABC, abstractmethod
 from datetime import datetime
-from multiprocessing import Process
 from pathlib import Path
 from typing import Iterable
 
+import pandas as pd
+
+from kazantsev.currency_rates import CurrencyRates
 from kazantsev.models import Vacancy
 from kazantsev.year_separated import YearSeparated
 
@@ -19,17 +20,16 @@ class AvgCounter:
         value (float): Среднее арифметическое значение
     """
 
-    def __init__(self, first_value=None):
+    def __init__(self, *values):
         """
         Инициализирует объект счетчика среднего арифметического
-        :param first_value: Первое значение
-        :type first_value: float
+        :param values: Значения для счетчика
+        :type values: float
         """
-        self.value = 0
-        self._sum = 0
-        self._len = 0
-        if first_value is not None:
-            self.add(first_value)
+        self._sum = sum(values)
+        self._len = len(values)
+        if self._len != 0:
+            self.value = self._sum / self._len
 
     def add(self, value):
         """
@@ -41,6 +41,32 @@ class AvgCounter:
         self._sum += value
         self._len += 1
         self.value = self._sum / self._len
+
+    @property
+    def sum(self):
+        return self._sum
+
+    @property
+    def len(self):
+        return self._len
+
+    def concat(self, other_counter):
+        return AvgCounter.unite_many(self, other_counter)
+
+    @staticmethod
+    def unite_many(*counters):
+        """
+        Объединяет множество счетчиков среднее числа в один
+        :param counters: счетчики
+        :type counters: AvgCounter
+        :return: Объединенный счетчик
+        :rtype: AvgCounter
+        """
+        counter = AvgCounter()
+        counter._sum = sum(c.sum for c in counters)
+        counter._len = sum(c.len for c in counters)
+        counter.value = counter.sum / counter.len
+        return counter
 
 
 class VacanciesStatistics(ABC):
@@ -67,6 +93,16 @@ class VacanciesStatistics(ABC):
     @property
     @abstractmethod
     def prof_counts_by_year(self):
+        pass
+
+    @property
+    @abstractmethod
+    def vacancies_count(self):
+        pass
+
+    @property
+    @abstractmethod
+    def avg_counters_by_cities(self):
         pass
 
     @property
@@ -259,175 +295,178 @@ class SingleProcessVacanciesStatistics(VacanciesStatistics):
             row_dict[title_row[i]] = row[i]
         return row_dict
 
-
-class MultiProcessVacanciesStatics(VacanciesStatistics):
-    def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str, preload_city_stats=False):
-        self._prof_name = prof_name
-        self._general_table = general_table
-
-        with multiprocessing.Manager() as manager:
-            chunk_dicts = manager.dict({
-                'salaries': manager.dict(),
-                'counts': manager.dict(),
-                'prof_salaries': manager.dict(),
-                'prof_counts': manager.dict(),
-            })
-
-            city_dicts = manager.dict({
-                'top_10_salaries_by_cities': manager.dict(),
-                'top_10_cities_shares': manager.dict(),
-            })
-
-            general_table_process = Process(target=self._handle_general_table,
-                                            args=(self._prof_name, general_table, city_dicts))
-            if preload_city_stats:
-                general_table_process.start()
-
-            chunk_processes = []
-            for path in chunk_paths:
-                process = Process(target=self._handle_one_chunk, args=(self._prof_name, path, chunk_dicts))
-                process.start()
-                chunk_processes.append(process)
-
-            for process in chunk_processes:
-                process.join()
-
-            self._salaries_by_year = dict(chunk_dicts['salaries'])
-            self._counts_by_year = dict(chunk_dicts['counts'])
-            self._prof_salaries_by_year = dict(chunk_dicts['prof_salaries'])
-            self._prof_counts_by_year = dict(chunk_dicts['prof_counts'])
-
-            self._city_stats_loaded = preload_city_stats
-            if preload_city_stats:
-                general_table_process.join()
-                self._top_10_salaries_by_cities = dict(city_dicts['top_10_salaries_by_cities'])
-                self._top_10_cities_shares = dict(city_dicts['top_10_cities_shares'])
-
-    def _load_city_stats(self):
-        with multiprocessing.Manager() as manager:
-            city_dicts = manager.dict({
-                'top_10_salaries_by_cities': manager.dict(),
-                'top_10_cities_shares': manager.dict(),
-            })
-            args = (self._prof_name, self._general_table, city_dicts)
-            general_table_process = Process(target=self._handle_general_table, args=args)
-            general_table_process.start()
-            general_table_process.join()
-            self._top_10_salaries_by_cities = dict(city_dicts['top_10_salaries_by_cities'])
-            self._top_10_cities_shares = dict(city_dicts['top_10_cities_shares'])
-            self._city_stats_loaded = True
-
-    @staticmethod
-    def _handle_one_chunk(prof_name, path: Path, dicts):
-        stats = SingleProcessVacanciesStatistics(path, prof_name)
-        dicts['salaries'].update(stats.salaries_by_year)
-        dicts['counts'].update(stats.counts_by_year)
-        dicts['prof_salaries'].update(stats.prof_salaries_by_year)
-        dicts['prof_counts'].update(stats.prof_counts_by_year)
-
-    @staticmethod
-    def _handle_general_table(prof_name, path: Path, dicts):
-        stats = SingleProcessVacanciesStatistics(path, prof_name)
-        dicts['top_10_salaries_by_cities'].update(stats.top_10_salaries_by_cities)
-        dicts['top_10_cities_shares'].update(stats.top_10_cities_shares)
-
-    @staticmethod
-    def from_chunk_folder(general_table: Path, chunk_folder: Path, prof_name: str):
-        return MultiProcessVacanciesStatics(general_table, (p for p in chunk_folder.rglob('*')), prof_name)
-
-    @staticmethod
-    def from_year_separated(year_separated: YearSeparated, prof_name: str):
-        return MultiProcessVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths, prof_name)
+    @property
+    def vacancies_count(self):
+        return self._vacancies_count
 
     @property
-    def prof_name(self):
-        return self._prof_name
+    def avg_counters_by_cities(self):
+        return self._salaries_by_cities
 
-    @property
-    def salaries_by_year(self):
-        if len(self._salaries_by_year) == 0:
-            return {datetime.now().year: 0}
-        return self._salaries_by_year
 
-    @property
-    def counts_by_year(self):
-        if len(self._counts_by_year) == 0:
-            return {datetime.now().year: 0}
-        return self._counts_by_year
-
-    @property
-    def prof_salaries_by_year(self):
-        if len(self._prof_salaries_by_year) == 0:
-            return {datetime.now().year: 0}
-        return self._prof_salaries_by_year
-
-    @property
-    def prof_counts_by_year(self):
-        if len(self._prof_counts_by_year) == 0:
-            return {datetime.now().year: 0}
-        return self._prof_counts_by_year
-
-    @property
-    def top_10_salaries_by_cities(self):
-        if not self._city_stats_loaded:
-            self._load_city_stats()
-        return self._top_10_salaries_by_cities
-
-    @property
-    def top_10_cities_shares(self):
-        if not self._city_stats_loaded:
-            self._load_city_stats()
-        return self._top_10_cities_shares
+# class MultiProcessVacanciesStatics(VacanciesStatistics):
+#     def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str, preload_city_stats=False):
+#         self._prof_name = prof_name
+#         self._general_table = general_table
+#
+#         with multiprocessing.Manager() as manager:
+#             chunk_dicts = manager.dict({
+#                 'salaries': manager.dict(),
+#                 'counts': manager.dict(),
+#                 'prof_salaries': manager.dict(),
+#                 'prof_counts': manager.dict(),
+#             })
+#
+#             city_dicts = manager.dict({
+#                 'top_10_salaries_by_cities': manager.dict(),
+#                 'top_10_cities_shares': manager.dict(),
+#             })
+#
+#             general_table_process = Process(target=self._handle_general_table,
+#                                             args=(self._prof_name, general_table, city_dicts))
+#             if preload_city_stats:
+#                 general_table_process.start()
+#
+#             chunk_processes = []
+#             for path in chunk_paths:
+#                 process = Process(target=self._handle_one_chunk, args=(self._prof_name, path, chunk_dicts))
+#                 process.start()
+#                 chunk_processes.append(process)
+#
+#             for process in chunk_processes:
+#                 process.join()
+#
+#             self._salaries_by_year = dict(chunk_dicts['salaries'])
+#             self._counts_by_year = dict(chunk_dicts['counts'])
+#             self._prof_salaries_by_year = dict(chunk_dicts['prof_salaries'])
+#             self._prof_counts_by_year = dict(chunk_dicts['prof_counts'])
+#
+#             self._city_stats_loaded = preload_city_stats
+#             if preload_city_stats:
+#                 general_table_process.join()
+#                 self._top_10_salaries_by_cities = dict(city_dicts['top_10_salaries_by_cities'])
+#                 self._top_10_cities_shares = dict(city_dicts['top_10_cities_shares'])
+#
+#     def _load_city_stats(self):
+#         with multiprocessing.Manager() as manager:
+#             city_dicts = manager.dict({
+#                 'top_10_salaries_by_cities': manager.dict(),
+#                 'top_10_cities_shares': manager.dict(),
+#             })
+#             args = (self._prof_name, self._general_table, city_dicts)
+#             general_table_process = Process(target=self._handle_general_table, args=args)
+#             general_table_process.start()
+#             general_table_process.join()
+#             self._top_10_salaries_by_cities = dict(city_dicts['top_10_salaries_by_cities'])
+#             self._top_10_cities_shares = dict(city_dicts['top_10_cities_shares'])
+#             self._city_stats_loaded = True
+#
+#     @staticmethod
+#     def _handle_one_chunk(prof_name, path: Path, dicts):
+#         stats = SingleProcessVacanciesStatistics(path, prof_name)
+#         dicts['salaries'].update(stats.salaries_by_year)
+#         dicts['counts'].update(stats.counts_by_year)
+#         dicts['prof_salaries'].update(stats.prof_salaries_by_year)
+#         dicts['prof_counts'].update(stats.prof_counts_by_year)
+#
+#     @staticmethod
+#     def _handle_general_table(prof_name, path: Path, dicts):
+#         stats = SingleProcessVacanciesStatistics(path, prof_name)
+#         dicts['top_10_salaries_by_cities'].update(stats.top_10_salaries_by_cities)
+#         dicts['top_10_cities_shares'].update(stats.top_10_cities_shares)
+#
+#     @staticmethod
+#     def from_chunk_folder(general_table: Path, chunk_folder: Path, prof_name: str):
+#         return MultiProcessVacanciesStatics(general_table, (p for p in chunk_folder.rglob('*')), prof_name)
+#
+#     @staticmethod
+#     def from_year_separated(year_separated: YearSeparated, prof_name: str):
+#         return MultiProcessVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths, prof_name)
+#
+#     @property
+#     def prof_name(self):
+#         return self._prof_name
+#
+#     @property
+#     def salaries_by_year(self):
+#         if len(self._salaries_by_year) == 0:
+#             return {datetime.now().year: 0}
+#         return self._salaries_by_year
+#
+#     @property
+#     def counts_by_year(self):
+#         if len(self._counts_by_year) == 0:
+#             return {datetime.now().year: 0}
+#         return self._counts_by_year
+#
+#     @property
+#     def prof_salaries_by_year(self):
+#         if len(self._prof_salaries_by_year) == 0:
+#             return {datetime.now().year: 0}
+#         return self._prof_salaries_by_year
+#
+#     @property
+#     def prof_counts_by_year(self):
+#         if len(self._prof_counts_by_year) == 0:
+#             return {datetime.now().year: 0}
+#         return self._prof_counts_by_year
+#
+#     @property
+#     def top_10_salaries_by_cities(self):
+#         if not self._city_stats_loaded:
+#             self._load_city_stats()
+#         return self._top_10_salaries_by_cities
+#
+#     @property
+#     def top_10_cities_shares(self):
+#         if not self._city_stats_loaded:
+#             self._load_city_stats()
+#         return self._top_10_cities_shares
 
 
 class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
-    def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str, preload_city_stats=False):
+    def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str):
         self._prof_name = prof_name
         self._general_table = general_table
-        self._city_stats_loaded = preload_city_stats
         self._salaries_by_year = dict()
         self._counts_by_year = dict()
         self._prof_salaries_by_year = dict()
         self._prof_counts_by_year = dict()
+        self._avg_counters_by_cities = dict()
+        self._vacancies_count = 0
 
         with pool.ProcessPoolExecutor() as executor:
-            if preload_city_stats:
-                future_general = executor.submit(self._handle_general_table)
+            for chunk_stats in executor.map(self._handle_one_chunk, chunk_paths, timeout=None):
+                self._salaries_by_year.update(chunk_stats.salaries_by_year)
+                self._counts_by_year.update(chunk_stats.counts_by_year)
+                self._prof_salaries_by_year.update(chunk_stats.prof_salaries_by_year)
+                self._prof_counts_by_year.update(chunk_stats.prof_counts_by_year)
+                for city, counter in chunk_stats.avg_counters_by_cities.items():
+                    if city in self._avg_counters_by_cities:
+                        self._avg_counters_by_cities[city] = self._avg_counters_by_cities[city].concat(counter)
+                    else:
+                        self._avg_counters_by_cities[city] = counter
+                    self._vacancies_count += counter.len
 
-            for chunk_dict in executor.map(self._handle_one_chunk, chunk_paths, timeout=None):
-                self._salaries_by_year.update(chunk_dict['salaries'])
-                self._counts_by_year.update(chunk_dict['counts'])
-                self._prof_salaries_by_year.update(chunk_dict['prof_salaries'])
-                self._prof_counts_by_year.update(chunk_dict['prof_counts'])
+        self._init_counts_by_cities()
+        self._init_city_salaries()
 
-            if preload_city_stats:
-                city_dicts = future_general.result()
-                self._top_10_salaries_by_cities = city_dicts['top_10_salaries_by_cities']
-                self._top_10_cities_shares = city_dicts['top_10_cities_shares']
+    def _init_counts_by_cities(self):
+        counts = map(lambda item: (item[0], item[1].len), self.avg_counters_by_cities.items())
+        one_percent = self.vacancies_count / 100
+        accept_counts = filter(lambda x: x[1] >= one_percent, counts)
+        top_10_counts = sorted(accept_counts, key=lambda item: -item[1])[:10]
+        self._top_10_cities_shares = dict(map(lambda x: (x[0], round(x[1] / self.vacancies_count, 4)), top_10_counts))
 
-    def _load_city_stats(self):
-        with pool.ProcessPoolExecutor() as executor:
-            future_general = executor.submit(self._handle_general_table)
-            city_dicts = future_general.result()
-            self._top_10_salaries_by_cities = city_dicts['top_10_salaries_by_cities']
-            self._top_10_cities_shares = city_dicts['top_10_cities_shares']
-            self._city_stats_loaded = True
+    def _init_city_salaries(self):
+        one_percent = self.vacancies_count / 100
+        accepted_items = filter(lambda x: x[1].len >= one_percent, self.avg_counters_by_cities.items())
+        salaries = map(lambda item: (item[0], int(item[1].value)), accepted_items)
+        self._top_10_salaries_by_cities = dict(sorted(salaries, key=lambda item: -item[1])[:10])
 
     def _handle_one_chunk(self, path: Path):
         stats = SingleProcessVacanciesStatistics(path, self._prof_name)
-        return {
-            'salaries': stats.salaries_by_year,
-            'counts': stats.counts_by_year,
-            'prof_salaries': stats.prof_salaries_by_year,
-            'prof_counts': stats.prof_counts_by_year,
-        }
-
-    def _handle_general_table(self):
-        stats = SingleProcessVacanciesStatistics(self._general_table, self._prof_name)
-        return {
-            'top_10_salaries_by_cities': stats.top_10_salaries_by_cities,
-            'top_10_cities_shares': stats.top_10_cities_shares
-        }
+        return stats
 
     @staticmethod
     def from_chunk_folder(general_table: Path, chunk_folder: Path, prof_name: str):
@@ -435,11 +474,20 @@ class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
 
     @staticmethod
     def from_year_separated(year_separated: YearSeparated, prof_name: str):
-        return ConcurrentFuturesVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths, prof_name)
+        return ConcurrentFuturesVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths,
+                                                 prof_name)
 
     @property
     def prof_name(self):
         return self._prof_name
+
+    @property
+    def vacancies_count(self):
+        return self._vacancies_count
+
+    @property
+    def avg_counters_by_cities(self):
+        return self._avg_counters_by_cities
 
     @property
     def salaries_by_year(self):
@@ -467,12 +515,8 @@ class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
 
     @property
     def top_10_salaries_by_cities(self):
-        if not self._city_stats_loaded:
-            self._load_city_stats()
         return self._top_10_salaries_by_cities
 
     @property
     def top_10_cities_shares(self):
-        if not self._city_stats_loaded:
-            self._load_city_stats()
         return self._top_10_cities_shares
