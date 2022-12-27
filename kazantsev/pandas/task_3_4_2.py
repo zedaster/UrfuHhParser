@@ -20,5 +20,6 @@ def execute_3_4_2():
     report.generate_pdf('3_4_2.pdf')
 
 
+# tests/vacancies_by_year.csv
+# аналитик
 execute_3_4_2()
-

@@ -532,32 +532,34 @@ class PandasVacanciesStatistics(VacanciesStatistics):
             .pipe(parse_pd_datetime, 'published_at') \
             .pipe(unite_salaries, rates)
         self._vacancies_count = df.shape[0]
+        self._load_year_stats(df)
+        self._load_prof_stats(df)
+        self._load_city_stats(df)
 
-        df_by_year = df.groupby(df.published_at.dt.year)
+    def _load_year_stats(self, _df):
+        df_by_year = _df.groupby(_df.published_at.dt.year)
         self._salaries_by_year = df_by_year['salary'].mean().astype(int).to_dict()
         self._counts_by_year = df_by_year.size().to_dict()
 
-        prof_df_by_year = df[df['name'].str.contains(prof_name, case=True)] \
-            .groupby(df.published_at.dt.year)
+    def _load_prof_stats(self, _df):
+        prof_df_by_year = _df[_df['name'].str.contains(self._prof_name, case=True)] \
+            .groupby(_df.published_at.dt.year)
         self._prof_salaries_by_year = prof_df_by_year['salary'].mean().astype(int).to_dict()
         self._prof_counts_by_year = prof_df_by_year.size().to_dict()
 
-        df_true_cities = df[df.groupby('area_name')['area_name'].transform('size') >= self._vacancies_count / 100]
+    def _load_city_stats(self, _df):
+        df_true_cities = _df[_df.groupby('area_name')['area_name'].transform('size') >= self._vacancies_count / 100]
         df_true_group = df_true_cities.groupby('area_name')
-
-        # self._city_avg_counters = df_true_group['salary'].apply(list).apply(AvgCounter).to_dict()
-        self._top_10_salaries_by_cities = df_true_group['salary']\
-            .mean()\
-            .astype(int)\
-            .sort_values(ascending=False)\
-            .iloc[:10]\
-            .to_dict()
-        self._top_10_cities_shares = df_true_group\
-            .size()\
-            .sort_values(ascending=False)\
-            .apply(lambda x: x / self._vacancies_count) \
-            .iloc[:10] \
-            .to_dict()
+        self._top_10_salaries_by_cities = df_true_group['salary'] \
+                                              .mean() \
+                                              .astype(int) \
+                                              .sort_values(ascending=False) \
+                                              .iloc[:10].to_dict()
+        self._top_10_cities_shares = df_true_group \
+                                         .size() \
+                                         .sort_values(ascending=False) \
+                                         .apply(lambda x: x / self._vacancies_count) \
+                                         .iloc[:10].to_dict()
 
     @staticmethod
     def _salary_to_rub(row, rates):
