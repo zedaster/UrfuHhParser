@@ -8,7 +8,9 @@ from typing import Iterable
 import pandas as pd
 
 from kazantsev.currency_rates import CurrencyRates
+from kazantsev.datetime_parser import parse_pd_datetime
 from kazantsev.models import Vacancy
+from kazantsev.salary_handler import unite_salaries
 from kazantsev.year_separated import YearSeparated
 
 
@@ -115,7 +117,6 @@ class VacanciesStatistics(ABC):
     def top_10_cities_shares(self):
         pass
 
-    @property
     def get_top_10_percent_cities_shares(self, digits=None):
         """
         Возвращает топ 10 городов, где больше всего доля вакансий в процентах
@@ -425,9 +426,8 @@ class SingleProcessVacanciesStatistics(VacanciesStatistics):
 
 
 class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
-    def __init__(self, general_table: Path, chunk_paths: Iterable[Path], prof_name: str):
+    def __init__(self, chunk_paths: Iterable[Path], prof_name: str):
         self._prof_name = prof_name
-        self._general_table = general_table
         self._salaries_by_year = dict()
         self._counts_by_year = dict()
         self._prof_salaries_by_year = dict()
@@ -469,12 +469,12 @@ class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
         return stats
 
     @staticmethod
-    def from_chunk_folder(general_table: Path, chunk_folder: Path, prof_name: str):
-        return ConcurrentFuturesVacanciesStatics(general_table, (p for p in chunk_folder.rglob('*')), prof_name)
+    def from_chunk_folder(chunk_folder: Path, prof_name: str):
+        return ConcurrentFuturesVacanciesStatics((p for p in chunk_folder.rglob('*')), prof_name)
 
     @staticmethod
     def from_year_separated(year_separated: YearSeparated, prof_name: str):
-        return ConcurrentFuturesVacanciesStatics(year_separated.main_csv_path, year_separated.chunk_csv_paths,
+        return ConcurrentFuturesVacanciesStatics(year_separated.chunk_csv_paths,
                                                  prof_name)
 
     @property
@@ -520,3 +520,98 @@ class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
     @property
     def top_10_cities_shares(self):
         return self._top_10_cities_shares
+
+
+class PandasVacanciesStatistics(VacanciesStatistics):
+    def __init__(self, path: Path, prof_name: str, rates: CurrencyRates):
+        self.path = path
+        self._prof_name = prof_name
+        # parse_dates=['published_at'] не работает, см.
+        # https://stackoverflow.com/questions/74921547/how-to-parse-a-date-column-as-datetimes-not-objects-in-pandas
+        df = pd.read_csv(path) \
+            .pipe(parse_pd_datetime, 'published_at') \
+            .pipe(unite_salaries, rates)
+        self._vacancies_count = df.shape[0]
+
+        df_by_year = df.groupby(df.published_at.dt.year)
+        self._salaries_by_year = df_by_year['salary'].mean().astype(int).to_dict()
+        self._counts_by_year = df_by_year.size().to_dict()
+
+        prof_df_by_year = df[df['name'].str.contains(prof_name, case=True)] \
+            .groupby(df.published_at.dt.year)
+        self._prof_salaries_by_year = prof_df_by_year['salary'].mean().astype(int).to_dict()
+        self._prof_counts_by_year = prof_df_by_year.size().to_dict()
+
+        df_true_cities = df[df.groupby('area_name')['area_name'].transform('size') >= self._vacancies_count / 100]
+        df_true_group = df_true_cities.groupby('area_name')
+
+        # self._city_avg_counters = df_true_group['salary'].apply(list).apply(AvgCounter).to_dict()
+        self._top_10_salaries_by_cities = df_true_group['salary']\
+            .mean()\
+            .astype(int)\
+            .sort_values(ascending=False)\
+            .iloc[:10]\
+            .to_dict()
+        self._top_10_cities_shares = df_true_group\
+            .size()\
+            .sort_values(ascending=False)\
+            .apply(lambda x: x / self._vacancies_count) \
+            .iloc[:10] \
+            .to_dict()
+
+    @staticmethod
+    def _salary_to_rub(row, rates):
+        """
+        Переводит зарплату из заданной валюты в рубли
+        :param row: Строка в таблица (pd.Series)
+        :param rates: CurrencyRates
+        :return: Значение ячейки
+        """
+        if row['salary_currency'] != 'RUR' and not pd.isnull(row['salary']):
+            try:
+                rate = rates.get_rate(row['salary_currency'], row['published_at'])
+            except ValueError:
+                return row
+            if rate is None:
+                return row
+            row['salary'] = round(row['salary'] * rate, 0)
+        return row
+
+    @property
+    def prof_name(self):
+        return self._prof_name
+
+    @property
+    def salaries_by_year(self):
+        return self._salaries_by_year
+
+    @property
+    def counts_by_year(self):
+        return self._counts_by_year
+
+    @property
+    def prof_salaries_by_year(self):
+        return self._prof_salaries_by_year
+
+    @property
+    def prof_counts_by_year(self):
+        return self._prof_counts_by_year
+
+    @property
+    def top_10_salaries_by_cities(self):
+        return self._top_10_salaries_by_cities
+        # raise Exception('The method is not implemented')
+
+    @property
+    def top_10_cities_shares(self):
+        return self._top_10_cities_shares
+        # raise Exception('The method is not implemented')
+
+    @property
+    def vacancies_count(self):
+        return self._vacancies_count
+
+    @property
+    def avg_counters_by_cities(self):
+        # return self._city_avg_counters
+        raise Exception('The method is not implemented')

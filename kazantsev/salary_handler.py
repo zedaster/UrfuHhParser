@@ -23,6 +23,13 @@ def _salary_to_rub(row, rates):
     return row
 
 
+def unite_salaries(_df, rates):
+    _df.insert(1, 'salary', _df[['salary_from', 'salary_to']].mean(axis=1))
+    return _df\
+        .apply(lambda x: _salary_to_rub(x, rates), axis=1) \
+        .drop(['salary_from', 'salary_to', 'salary_currency'], axis=1)
+
+
 def handle_salaries(in_path: Path, out_path: Path, rates: CurrencyRates, limit=None):
     """
     Преобразует входной csv в csv с отформатированной зарплатой
@@ -35,7 +42,6 @@ def handle_salaries(in_path: Path, out_path: Path, rates: CurrencyRates, limit=N
     pd \
         .read_csv(in_path, nrows=limit) \
         .assign(published_at=lambda x: pd.to_datetime(x.published_at)) \
-        .assign(salary=lambda x: x[['salary_from', 'salary_to']].mean(axis=1)) \
-        .apply(lambda x: _salary_to_rub(x, rates), axis=1) \
+        .pipe(unite_salaries, rates) \
         .loc[:, ['name', 'salary', 'area_name', 'published_at']] \
         .to_csv(out_path, index=False)

@@ -2,9 +2,10 @@ from datetime import datetime
 
 import ciso8601
 
-
 # def _parse_datetime_ordinary(str_datetime):
 #     return datetime.strptime(str_datetime, '%Y-%m-%dT%H:%M:%S%z')
+import pandas as pd
+
 
 def _parse_datetime_with_ciso8601(str_datetime):
     # Microsoft Visual C++ 14.0 or greater is required
@@ -74,3 +75,8 @@ def parse_datetime(str_datetime: str) -> datetime:
     :rtype datetime
     """
     return _parse_datetime_with_ciso8601(str_datetime)
+
+
+def parse_pd_datetime(_df, column_name):
+    _df[column_name] = pd.to_datetime(_df[column_name], utc=True).map(lambda x: x.tz_convert('Europe/Moscow'))
+    return _df
