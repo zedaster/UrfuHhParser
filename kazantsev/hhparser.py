@@ -752,10 +752,11 @@ class ReportGraphic:
     Класс для работы с графикой
     """
 
-    def __init__(self):
+    def __init__(self, prof_name):
         """
         Инициализация объекта для работы с графикой
         """
+        self.prof_name = prof_name
         plt.rcdefaults()
         self._fig, ((self._ax1, self._ax2), (self._ax3, self._ax4)) = plt.subplots(2, 2, figsize=(8, 8))
         self._fig.tight_layout(pad=5)
@@ -808,7 +809,7 @@ class ReportGraphic:
         x = np.arange(len(labels))
         width = 0.35  # the width of the bars
         self._ax1.bar(x - width / 2, salaries, width, label='средняя з/п')
-        self._ax1.bar(x + width / 2, prof_salaries, width, label='з/п программист')
+        self._ax1.bar(x + width / 2, prof_salaries, width, label=f'з/п {self.prof_name}')
 
         self._ax1.set_title('Уровень зарлат по годам')
         self._ax1.set_xticks(x, labels, fontsize=8, rotation=90)
@@ -832,7 +833,7 @@ class ReportGraphic:
         x = np.arange(len(labels))
         width = 0.35  # the width of the bars
         self._ax2.bar(x - width / 2, counts, width, label='Количество вакансий')
-        self._ax2.bar(x + width / 2, prof_counts, width, label='\n'.join(wrap('Количество вакансий программист', 20)))
+        self._ax2.bar(x + width / 2, prof_counts, width, label='\n'.join(wrap(f'Количество вакансий {self.prof_name}', 20)))
 
         self._ax2.set_title('Количество вакансий по годам')
         self._ax2.set_xticks(x, labels, fontsize=8, rotation=90)
@@ -944,7 +945,7 @@ class Report:
         :return: None
         :type filename: str
         """
-        graphic = ReportGraphic()
+        graphic = ReportGraphic(self.stats.prof_name)
         graphic.set_vacancies_statics(self.stats)
         graphic.save_picture(filename)
 
@@ -954,7 +955,7 @@ class Report:
         :return: base64 изображение в виде utf-8 строки
         :rtype: str
         """
-        graphic = ReportGraphic()
+        graphic = ReportGraphic(self.stats.prof_name)
         graphic.set_vacancies_statics(self.stats)
         return graphic.get_png_base64_bytes().decode("utf-8")
 
@@ -999,8 +1000,10 @@ class Report:
 
         env = Environment(loader=FileSystemLoader(os.path.join(os.path.dirname(__file__))))
         template = env.get_template(HTML_TEMPLATE_PATH)
+
         html = template.render({
-            'prof_name': 'Программист',
+            'prof_name': self.stats.prof_name,
+            'area_name': self.stats.area_name,
             'graph_bytes': self._get_base64_png()
         },
             year_items=get_year_items(),

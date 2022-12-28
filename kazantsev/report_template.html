@@ -24,6 +24,9 @@
 </head>
 <body>
 <h1>Аналитика по зарплатам и городам для профессии {{prof_name}}</h1>
+{% if area_name is not none %}
+<p><b>Выбранный регион:</b> {{area_name}}</p>
+{% endif %}
 <div class="graph-container">
     <img src="data:image/png;base64,{{graph_bytes}}"/>
 </div>
@@ -49,7 +52,7 @@
     </table>
 </div>
 
-<h2>Статистика по городам</h2>
+<h2>Статистика по разным городам</h2>
 <table>
     <tr>
         <th scope="col">Город</th>

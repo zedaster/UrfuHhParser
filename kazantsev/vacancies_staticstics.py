@@ -1,3 +1,4 @@
+import concurrent.futures
 import concurrent.futures as pool
 import csv
 from abc import ABC, abstractmethod
@@ -128,6 +129,14 @@ class VacanciesStatistics(ABC):
             handler = lambda n: round(100 * n, digits)
 
         return {k: handler(v) for k, v in self.top_10_cities_shares.items()}
+
+    @property
+    def area_name(self):
+        """
+        Возвращает регион, если есть к нему привязка при обработке
+        :return: Название региона или None, если его нет в обработке
+        """
+        return None
 
 
 class SingleProcessVacanciesStatistics(VacanciesStatistics):
@@ -523,43 +532,58 @@ class ConcurrentFuturesVacanciesStatics(VacanciesStatistics):
 
 
 class PandasVacanciesStatistics(VacanciesStatistics):
-    def __init__(self, path: Path, prof_name: str, rates: CurrencyRates):
+    def __init__(self, path: Path, prof_name: str, rates: CurrencyRates, area_name=None):
         self.path = path
         self._prof_name = prof_name
+        self._area_name = area_name
         # parse_dates=['published_at'] не работает, см.
         # https://stackoverflow.com/questions/74921547/how-to-parse-a-date-column-as-datetimes-not-objects-in-pandas
         df = pd.read_csv(path) \
             .pipe(parse_pd_datetime, 'published_at') \
             .pipe(unite_salaries, rates)
         self._vacancies_count = df.shape[0]
-        self._load_year_stats(df)
-        self._load_prof_stats(df)
-        self._load_city_stats(df)
+        with concurrent.futures.ProcessPoolExecutor(max_workers=3) as executor:
+            future_year_stats = executor.submit(self._load_year_stats, df, area_name)
+            future_prof_stats = executor.submit(self._load_prof_stats, df, area_name, prof_name)
+            future_city_stats = executor.submit(self._load_city_stats, df, self._vacancies_count)
+            self._salaries_by_year, self._counts_by_year = future_year_stats.result()
+            self._prof_salaries_by_year, self._prof_counts_by_year = future_prof_stats.result()
+            self._top_10_salaries_by_cities, self._top_10_cities_shares = future_city_stats.result()
 
-    def _load_year_stats(self, _df):
+    @staticmethod
+    def _load_year_stats(_df, area_name):
+        if area_name is not None:
+            _df = _df[_df['area_name'] == area_name]
         df_by_year = _df.groupby(_df.published_at.dt.year)
-        self._salaries_by_year = df_by_year['salary'].mean().astype(int).to_dict()
-        self._counts_by_year = df_by_year.size().to_dict()
+        salaries_by_year = df_by_year['salary'].mean().astype(int).to_dict()
+        counts_by_year = df_by_year.size().to_dict()
+        return salaries_by_year, counts_by_year
 
-    def _load_prof_stats(self, _df):
-        prof_df_by_year = _df[_df['name'].str.contains(self._prof_name, case=True)] \
+    @staticmethod
+    def _load_prof_stats(_df, area_name, prof_name):
+        if area_name is not None:
+            _df = _df[_df['area_name'] == area_name]
+        prof_df_by_year = _df[_df['name'].str.contains(prof_name, case=True)] \
             .groupby(_df.published_at.dt.year)
-        self._prof_salaries_by_year = prof_df_by_year['salary'].mean().astype(int).to_dict()
-        self._prof_counts_by_year = prof_df_by_year.size().to_dict()
+        prof_salaries_by_year = prof_df_by_year['salary'].mean().astype(int).to_dict()
+        prof_counts_by_year = prof_df_by_year.size().to_dict()
+        return prof_salaries_by_year, prof_counts_by_year
 
-    def _load_city_stats(self, _df):
-        df_true_cities = _df[_df.groupby('area_name')['area_name'].transform('size') >= self._vacancies_count / 100]
+    @staticmethod
+    def _load_city_stats(_df, vacancies_count):
+        df_true_cities = _df[_df.groupby('area_name')['area_name'].transform('size') >= vacancies_count / 100]
         df_true_group = df_true_cities.groupby('area_name')
-        self._top_10_salaries_by_cities = df_true_group['salary'] \
-                                              .mean() \
-                                              .astype(int) \
-                                              .sort_values(ascending=False) \
-                                              .iloc[:10].to_dict()
-        self._top_10_cities_shares = df_true_group \
-                                         .size() \
-                                         .sort_values(ascending=False) \
-                                         .apply(lambda x: x / self._vacancies_count) \
-                                         .iloc[:10].to_dict()
+        top_10_salaries_by_cities = df_true_group['salary'] \
+                                        .mean() \
+                                        .astype(int) \
+                                        .sort_values(ascending=False) \
+                                        .iloc[:10].to_dict()
+        top_10_cities_shares = df_true_group \
+                                   .size() \
+                                   .sort_values(ascending=False) \
+                                   .apply(lambda x: x / vacancies_count) \
+                                   .iloc[:10].to_dict()
+        return top_10_salaries_by_cities, top_10_cities_shares
 
     @staticmethod
     def _salary_to_rub(row, rates):
@@ -582,6 +606,10 @@ class PandasVacanciesStatistics(VacanciesStatistics):
     @property
     def prof_name(self):
         return self._prof_name
+
+    @property
+    def area_name(self):
+        return self._area_name
 
     @property
     def salaries_by_year(self):

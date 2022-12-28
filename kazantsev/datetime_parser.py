@@ -78,5 +78,6 @@ def parse_datetime(str_datetime: str) -> datetime:
 
 
 def parse_pd_datetime(_df, column_name):
-    _df[column_name] = pd.to_datetime(_df[column_name], utc=True).map(lambda x: x.tz_convert('Europe/Moscow'))
+    _df[column_name] = pd.to_datetime(_df[column_name], utc=True)
+        #.map(lambda x: x.tz_convert('Europe/Moscow'))
     return _df
